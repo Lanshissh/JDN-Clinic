@@ -320,8 +320,17 @@ tbody tr:hover{ background: rgba(204,233,236,.22); }
 /* Desktop nav */
 .appNav{
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Allow wrap only when needed */
+@media (max-width: 1200px){
+  .appNav{
+    flex-wrap: wrap;
+    row-gap: 6px;
+    justify-content: flex-end;
+  }
 }
 
 /* Link pill (premium) */
@@ -353,7 +362,44 @@ tbody tr:hover{ background: rgba(204,233,236,.22); }
   box-shadow: var(--shadow-brand);
 }
 
-/* Mobile menu panel (used by App.jsx dropdown) */
+/* ===== Cleaner small-screen header actions ===== */
+.appHeaderActions{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.appMenuButton{
+  padding: 10px 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 900;
+}
+
+/* Page pill row (mobile/tablet) */
+.appPagePill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: rgba(255,255,255,.75);
+  box-shadow: 0 8px 18px rgba(0,0,0,.06);
+}
+
+/* Menu overlay */
+.appMenuOverlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.25);
+  backdrop-filter: blur(2px);
+  z-index: 55;
+}
+
+/* Mobile menu panel */
 .appMenuPanel{
   border-top: 1px solid rgba(0,0,0,.08);
   background: rgba(246,248,251,.92);
@@ -365,6 +411,28 @@ tbody tr:hover{ background: rgba(204,233,236,.22); }
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.appMenuLink{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px;
+  border-radius: 14px;
+}
+
+.appMenuLeft{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.appMenuChevron{
+  opacity: .55;
+}
+.appMenuLink.isActive .appMenuChevron{
+  opacity: 1;
 }
 
 /* Bottom tabs (mobile) */
@@ -416,23 +484,6 @@ tbody tr:hover{ background: rgba(204,233,236,.22); }
    MOBILE HEADER CLEANUP (KEY FIX)
    ========================= */
 
-.appHeaderActions{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.appPagePill{
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(0,0,0,.08);
-  background: rgba(255,255,255,.75);
-  box-shadow: 0 8px 18px rgba(0,0,0,.06);
-}
-
 /* Override old mobile behavior that stacked header into columns. */
 @media (max-width: 900px){
   .appTopbarInner{
@@ -458,7 +509,7 @@ tbody tr:hover{ background: rgba(204,233,236,.22); }
     height: 38px;
   }
 
-  /* If desktop nav shows accidentally on small screens */
+  /* Hide desktop nav on small screens */
   .appNav{ display: none; }
 }
 

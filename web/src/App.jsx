@@ -1,4 +1,11 @@
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  NavLink,
+  useLocation,
+  Navigate,
+} from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import InpatientPage from "./pages/InpatientPage";
@@ -8,6 +15,8 @@ import ReportsPage from "./pages/ReportsPage";
 import EmployeesPage from "./pages/EmployeesPage";
 import EmployeeHistoryPage from "./pages/EmployeeHistoryPage";
 import DashboardPage from "./pages/DashboardPage";
+
+import { nurseLogin, clearNurseToken, getNurseToken } from "./api";
 
 const LOGO_SRC = "/jdn.jpg";
 
@@ -20,234 +29,172 @@ const NAV = [
   { to: "/reports", label: "Reports", short: "Reports", icon: "📄" },
 ];
 
-function useMediaQuery(query) {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia(query).matches;
-  });
+/* ================= AUTH ================= */
+function isLoggedIn() {
+  return !!getNurseToken();
+}
 
+function RequireAuth({ children }) {
+  const location = useLocation();
+  if (!isLoggedIn()) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+  return children;
+}
+
+/* ================= LOGIN ================= */
+function LoginPage() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr("");
+    setLoading(true);
+    try {
+      await nurseLogin(username, password, { remember });
+      window.location.href = "/";
+    } catch {
+      setErr("Invalid username or password");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 14 }}>
+      <form onSubmit={submit} className="card" style={{ width: "min(380px,100%)", display: "grid", gap: 12 }}>
+        <div style={{ textAlign: "center" }}>
+          <img src={LOGO_SRC} alt="Logo" style={{ width: 64, height: 64, borderRadius: 16 }} />
+          <h2>Nurse Login</h2>
+        </div>
+
+        <label>
+          Username
+          <input value={username} onChange={(e) => setUsername(e.target.value)} required />
+        </label>
+
+        <label>
+          Password
+          <div style={{ display: "flex", gap: 10 }}>
+            <input
+              type={showPw ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={{ flex: 1 }}
+            />
+            <button type="button" className="ghost" onClick={() => setShowPw(v => !v)}>
+              {showPw ? "Hide" : "Show"}
+            </button>
+          </div>
+        </label>
+
+        <label style={{ display: "flex", gap: 8 }}>
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          Remember me
+        </label>
+
+        {err && <div style={{ color: "var(--danger)" }}>{err}</div>}
+
+        <button className="primary" disabled={loading}>
+          {loading ? "Logging in…" : "Login"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/* ================= LAYOUT ================= */
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
     const mq = window.matchMedia(query);
     const onChange = () => setMatches(mq.matches);
-
-    if (mq.addEventListener) mq.addEventListener("change", onChange);
-    else mq.addListener(onChange);
-
-    onChange();
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", onChange);
-      else mq.removeListener(onChange);
-    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, [query]);
-
   return matches;
 }
 
 function isActivePath(pathname, to) {
-  if (to === "/") return pathname === "/";
-  return pathname === to || pathname.startsWith(`${to}/`);
+  return to === "/" ? pathname === "/" : pathname.startsWith(to);
 }
 
+/* ================= APP SHELL ================= */
 function AppShell() {
-  // tablet+mobile
   const isSmall = useMediaQuery("(max-width: 900px)");
-  // phone only (bottom tabs should be phone only)
   const isMobile = useMediaQuery("(max-width: 768px)");
-  // tablet-ish (for nicer grid)
-  const isTablet = useMediaQuery("(min-width: 600px) and (max-width: 900px)");
-
   const { pathname } = useLocation();
+
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
-  const headerRef = useRef(null);
+  const activeItem = useMemo(
+    () => NAV.find(n => isActivePath(pathname, n.to)) ?? NAV[0],
+    [pathname]
+  );
 
-  // close menu on navigation
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
-
-  // close menu on ESC
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  // close menu on outside click/tap (touch + mouse)
-  useEffect(() => {
-    if (!menuOpen) return;
-
-    function onDocPointerDown(e) {
-      if (!headerRef.current) return;
-      if (!headerRef.current.contains(e.target)) setMenuOpen(false);
-    }
-
-    document.addEventListener("pointerdown", onDocPointerDown);
-    return () => document.removeEventListener("pointerdown", onDocPointerDown);
-  }, [menuOpen]);
-
-  // prevent background scroll while menu open
-  useEffect(() => {
-    if (!menuOpen) return;
-
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [menuOpen]);
-
-  // reserve space for bottom tabs only on phone
-  useEffect(() => {
-    if (isMobile) document.body.classList.add("hasBottomTabs");
-    else document.body.classList.remove("hasBottomTabs");
-
-    return () => document.body.classList.remove("hasBottomTabs");
-  }, [isMobile]);
-
-  // if resizing from mobile->desktop, close the menu
-  useEffect(() => {
-    if (!isSmall) setMenuOpen(false);
-  }, [isSmall]);
-
-  const activeItem = useMemo(() => {
-    return NAV.find((n) => isActivePath(pathname, n.to)) ?? NAV[0];
-  }, [pathname]);
-
-  // bottom tabs: only the “fast entry” pages (phone only)
-  const bottomTabs = useMemo(() => [NAV[0], NAV[1], NAV[2], NAV[3]], []);
+  function logout() {
+    clearNurseToken();
+    window.location.href = "/login";
+  }
 
   return (
     <>
-      <header className="appTopbar" ref={headerRef}>
-        <div className="container appTopbarInner appTopbarInnerMobileFix">
-          {/* Brand */}
-          <div className="appBrand appBrandMobileFix">
-            <img src={LOGO_SRC} alt="Clinic Logo" className="appLogoImage" />
-            <div className="appBrandText appBrandTextMobileFix">
+      <header className="appTopbar">
+        <div className="container appTopbarInner">
+          <div className="appBrand">
+            <img src={LOGO_SRC} className="appLogoImage" />
+            <div className="appBrandText">
               <div className="appTitle">Nursing System</div>
-              <div className="appSubtitle appSubtitleMobileFix">
-                Fast clinic logging • Clean records • Easy reporting
-              </div>
             </div>
           </div>
 
-          {/* Right */}
           {!isSmall ? (
-            <nav className="appNav" aria-label="Primary navigation">
-              {NAV.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === "/"}
-                  className={({ isActive }) => `appNavLink ${isActive ? "isActive" : ""}`}
-                  title={item.label}
-                >
-                  <span style={{ marginRight: 6 }}>{item.icon}</span>
-                  {item.label}
-                </NavLink>
-              ))}
-            </nav>
+            <>
+              {/* ✅ CLEAN NAV — NO SCROLL */}
+              <nav className="appNav">
+                {NAV.map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === "/"}
+                    className={({ isActive }) => `appNavLink ${isActive ? "isActive" : ""}`}
+                  >
+                    <span>{item.icon}</span>
+                    {item.label}
+                  </NavLink>
+                ))}
+              </nav>
+
+              <button className="ghost" onClick={logout}>Logout</button>
+            </>
           ) : (
-            <div className="appHeaderActions">
-              <button
-                type="button"
-                className={menuOpen ? "primary" : "ghost"}
-                onClick={() => setMenuOpen((v) => !v)}
-                aria-expanded={menuOpen}
-                aria-controls="mobileMenu"
-                title="Menu"
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 999,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 10,
-                  fontWeight: 900,
-                }}
-              >
-                <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>
-                  {menuOpen ? "✕" : "☰"}
-                </span>
-                <span>Menu</span>
-              </button>
-            </div>
+            <button className="ghost" onClick={() => setMenuOpen(v => !v)}>
+              ☰ Menu
+            </button>
           )}
         </div>
 
-        {/* Page label row (tablet+mobile) */}
-        {isSmall && (
-          <div className="container" style={{ paddingTop: 6, paddingBottom: 10 }}>
-            <div className="appPagePill">
-              <span style={{ marginRight: 8 }}>{activeItem.icon}</span>
-              <span style={{ fontWeight: 900 }}>{activeItem.label}</span>
-            </div>
-          </div>
-        )}
-
-        {/* ✅ Backdrop overlay (makes it feel like a real menu modal) */}
         {isSmall && menuOpen && (
-          <div
-            aria-hidden="true"
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,.25)",
-              backdropFilter: "blur(2px)",
-              zIndex: 55,
-            }}
-          />
-        )}
-
-        {/* Mobile/Tablet menu */}
-        {isSmall && menuOpen && (
-          <div
-            id="mobileMenu"
-            className="appMenuPanel"
-            style={{
-              position: "relative",
-              zIndex: 56,
-            }}
-          >
-            <div className="container" style={{ paddingTop: 12, paddingBottom: 14 }}>
-              <div
-                className="appMenuGrid"
-                style={{
-                  gridTemplateColumns: isTablet ? "repeat(3, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))",
-                }}
-              >
-                {NAV.map((item) => {
-                  const active = isActivePath(pathname, item.to);
-                  return (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      end={item.to === "/"}
-                      className={`appNavLink ${active ? "isActive" : ""}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 10,
-                        padding: "12px 12px",
-                        borderRadius: 14,
-                      }}
-                    >
-                      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: 16 }}>{item.icon}</span>
-                        <span style={{ fontWeight: 900 }}>{item.label}</span>
-                      </span>
-                      <span style={{ opacity: active ? 1 : 0.55 }}>›</span>
-                    </NavLink>
-                  );
-                })}
-              </div>
-
-              <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-                Tip: On phone, use the bottom tabs for quick entry (Visits, BP, Checkups).
-              </div>
+          <div className="appMenuPanel">
+            <div className="container appMenuGrid">
+              {NAV.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className="appNavLink"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {item.icon} {item.label}
+                </NavLink>
+              ))}
+              <button className="danger" onClick={logout}>Logout</button>
             </div>
           </div>
         )}
@@ -264,48 +211,25 @@ function AppShell() {
           <Route path="/reports" element={<ReportsPage />} />
         </Routes>
       </main>
-
-      {/* Bottom tabs (PHONE ONLY) */}
-      {isMobile && (
-        <div className="appBottomTabs">
-          <div
-            className="container appBottomTabsInner"
-            style={{
-              paddingTop: 10,
-              paddingBottom: 10,
-              display: "grid",
-              gridTemplateColumns: `repeat(${bottomTabs.length}, minmax(0, 1fr))`,
-              gap: 10,
-            }}
-          >
-            {bottomTabs.map((t) => {
-              const active = isActivePath(pathname, t.to);
-              return (
-                <NavLink
-                  key={t.to}
-                  to={t.to}
-                  end={t.to === "/"}
-                  className={`appTab ${active ? "isActive" : ""}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <div style={{ fontSize: 16, lineHeight: 1 }}>{t.icon}</div>
-                  <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: ".2px" }}>
-                    {t.short}
-                  </div>
-                </NavLink>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </>
   );
 }
 
+/* ================= ROUTER ================= */
 export default function App() {
   return (
     <BrowserRouter>
-      <AppShell />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/*"
+          element={
+            <RequireAuth>
+              <AppShell />
+            </RequireAuth>
+          }
+        />
+      </Routes>
     </BrowserRouter>
   );
 }
