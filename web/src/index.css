@@ -1,0 +1,592 @@
+:root{
+  /* Palette */
+  --brand: #002FAA;
+  --ink: #000000;
+  --ice: #CCE9EC;
+
+  /* UI neutrals */
+  --bg: #f6f8fb;
+  --card: #ffffff;
+  --muted: rgba(0,0,0,.62);
+  --border: rgba(0,0,0,.10);
+
+  /* States */
+  --danger: #b00020;
+  --success: #0a7a2f;
+
+  /* Radii + shadows */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --shadow: 0 10px 30px rgba(0,0,0,.06);
+
+  /* Focus */
+  --focus: 0 0 0 4px rgba(0,47,170,.18);
+
+  /* Premium helpers */
+  --shadow-soft: 0 12px 28px rgba(0,0,0,.08);
+  --shadow-brand: 0 16px 34px rgba(0,47,170,.18);
+  --glass: rgba(246,248,251,.82);
+
+  /* Bottom tabs reserved space (so content doesn't get hidden) */
+  --bottom-tabs-h: 78px;
+
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+}
+
+*{ box-sizing: border-box; }
+html, body{ height: 100%; }
+
+/* ✅ STOP “PAGE MOVING” (horizontal drag / overflow) */
+html, body{
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body{
+  margin: 0;
+  background:
+    radial-gradient(1200px 800px at 15% 0%, rgba(204,233,236,.55), transparent 60%),
+    radial-gradient(900px 650px at 90% 10%, rgba(0,47,170,.10), transparent 55%),
+    var(--bg);
+  color: var(--ink);
+
+  /* ✅ Prevent sideways panning on touch devices */
+  touch-action: pan-y;
+
+  /* ✅ Contain accidental horizontal overflow */
+  position: relative;
+}
+
+/* If you use bottom tabs, add class "hasBottomTabs" to body in App.jsx
+   so content won't be covered by the fixed nav. */
+body.hasBottomTabs{
+  padding-bottom: calc(var(--bottom-tabs-h) + env(safe-area-inset-bottom));
+}
+
+a{ color: inherit; text-decoration: none; }
+
+h1,h2,h3{
+  margin: 0 0 10px;
+  letter-spacing: .2px;
+}
+h2{ font-size: 22px; }
+h3{ font-size: 16px; opacity: .92; }
+
+label{
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+input, textarea, select, button{ font: inherit; }
+
+/* ✅ Prevent long text from blowing up layouts */
+*{ min-width: 0; }
+p, h1, h2, h3, .appTitle, .appSubtitle, .muted{
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Inputs */
+input, textarea, select{
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: white;
+  outline: none;
+  transition: box-shadow .15s ease, border-color .15s ease, transform .05s ease;
+}
+
+input:focus, textarea:focus, select:focus{
+  border-color: rgba(0,47,170,.55);
+  box-shadow: var(--focus);
+}
+
+/* Better accessibility: focus ring only for keyboard */
+:focus-visible{
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+textarea{ resize: vertical; }
+
+/* Buttons */
+button{
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: white;
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+}
+
+button:hover{
+  border-color: rgba(0,47,170,.30);
+  box-shadow: 0 8px 20px rgba(0,0,0,.06);
+}
+
+button:active{ transform: translateY(1px); }
+button:disabled{ opacity: .55; cursor: not-allowed; box-shadow: none; }
+
+button.primary{
+  background: var(--brand);
+  border-color: var(--brand);
+  color: white;
+}
+
+button.primary:hover{ box-shadow: var(--shadow-brand); }
+
+button.ghost{
+  background: transparent;
+  border-color: rgba(0,47,170,.25);
+  color: var(--brand);
+}
+
+button.danger{
+  background: white;
+  border-color: rgba(176,0,32,.25);
+  color: var(--danger);
+}
+
+button.danger:hover{
+  border-color: rgba(176,0,32,.45);
+  box-shadow: 0 10px 22px rgba(176,0,32,.10);
+}
+
+/* Cards */
+.card{
+  background: var(--card);
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: var(--r-md);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  max-width: 100%;
+}
+
+.hr{
+  height: 1px;
+  background: rgba(0,0,0,.08);
+  border: 0;
+  margin: 18px 0;
+}
+
+/* ✅ Images never overflow */
+img{
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Layout */
+.container{
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+  overflow-x: hidden; /* ✅ contain overflow inside container */
+}
+.muted{ color: var(--muted); }
+
+/* =========================
+   TABLES (Responsive)
+   ========================= */
+
+.tableWrap{
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid rgba(0,0,0,.10);
+  border-radius: var(--r-md);
+  background: white;
+  box-shadow: var(--shadow);
+  -webkit-overflow-scrolling: touch;
+
+  /* ✅ contain inside wrapper only */
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+}
+
+table{
+  width: 100%;
+  border-collapse: collapse;
+  max-width: 100%;
+}
+
+thead th{
+  text-align:left;
+  padding: 12px;
+  border-bottom: 1px solid rgba(0,0,0,.10);
+  font-size: 12px;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: rgba(0,0,0,.70);
+  background: linear-gradient(180deg, rgba(204,233,236,.55), rgba(204,233,236,.18));
+  white-space: nowrap;
+}
+
+tbody td{
+  padding: 12px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+
+  /* ✅ long text won't force horizontal overflow */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+tbody tr:hover{ background: rgba(204,233,236,.22); }
+
+/* Badges */
+.badge{
+  display:inline-flex;
+  align-items:center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(204,233,236,.35);
+}
+
+.badge.blue{
+  border-color: rgba(0,47,170,.25);
+  background: rgba(0,47,170,.10);
+  color: var(--brand);
+}
+
+/* =========================
+   APP SHELL / TOPBAR (Premium)
+   ========================= */
+
+.appMain{
+  padding: 16px 0 28px;
+  overflow-x: hidden; /* ✅ prevent page shift */
+}
+
+/* Glass topbar */
+.appTopbar{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: var(--glass);
+  border-bottom: 1px solid rgba(0,0,0,.08);
+}
+
+/* Soft highlight line */
+.appTopbar::after{
+  content:"";
+  display:block;
+  height:1px;
+  background: linear-gradient(90deg, transparent, rgba(0,47,170,.18), transparent);
+  opacity: .7;
+}
+
+.appTopbarInner{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+/* Brand */
+.appBrand{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.appLogoImage{
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: white;
+  padding: 5px;
+  border: 1px solid rgba(0,0,0,.08);
+  box-shadow: var(--shadow-soft);
+}
+
+.appBrandText{ line-height: 1.15; min-width: 0; }
+
+.appTitle{
+  font-weight: 900;
+  letter-spacing: .25px;
+}
+
+.appSubtitle{
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Desktop nav */
+.appNav{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Link pill (premium) */
+.appNavLink{
+  padding: 10px 12px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: .2px;
+  background: rgba(255,255,255,.72);
+  border: 1px solid rgba(0,0,0,.08);
+  transition: transform .10s ease, box-shadow .18s ease, background .18s ease, border-color .18s ease;
+  box-shadow: 0 10px 22px rgba(0,0,0,.04);
+}
+
+.appNavLink:hover{
+  border-color: rgba(0,47,170,.22);
+  background: rgba(204,233,236,.40);
+  box-shadow: 0 14px 28px rgba(0,0,0,.06);
+  transform: translateY(-1px);
+}
+
+.appNavLink:active{ transform: translateY(0px); }
+
+.appNavLink.isActive{
+  color: #fff;
+  background: var(--brand);
+  border-color: rgba(0,47,170,.35);
+  box-shadow: var(--shadow-brand);
+}
+
+/* Mobile menu panel (used by App.jsx dropdown) */
+.appMenuPanel{
+  border-top: 1px solid rgba(0,0,0,.08);
+  background: rgba(246,248,251,.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.appMenuGrid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* Bottom tabs (mobile) */
+.appBottomTabs{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  background: rgba(246,248,251,.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(0,0,0,.10);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.appBottomTabsInner{
+  display: grid;
+  gap: 10px;
+}
+
+.appTab{
+  border-radius: 14px;
+  padding: 10px 10px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: white;
+  color: rgba(0,0,0,.82);
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  box-shadow: 0 8px 18px rgba(0,0,0,.06);
+  transition: transform .10s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.appTab:hover{
+  transform: translateY(-1px);
+  border-color: rgba(0,47,170,.22);
+  box-shadow: 0 14px 28px rgba(0,0,0,.08);
+}
+
+.appTab.isActive{
+  background: var(--brand);
+  color: white;
+  border-color: rgba(0,47,170,.35);
+  box-shadow: var(--shadow-brand);
+}
+
+/* =========================
+   MOBILE HEADER CLEANUP (KEY FIX)
+   ========================= */
+
+.appHeaderActions{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.appPagePill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: rgba(255,255,255,.75);
+  box-shadow: 0 8px 18px rgba(0,0,0,.06);
+}
+
+/* Override old mobile behavior that stacked header into columns. */
+@media (max-width: 900px){
+  .appTopbarInner{
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+
+  .appBrand{ min-width: 0; }
+
+  .appBrandText{
+    min-width: 0;
+    max-width: 62vw;
+  }
+
+  .appTitle{ font-size: 15px; }
+
+  /* Hide subtitle on mobile */
+  .appSubtitle{ display: none; }
+
+  .appLogoImage{
+    width: 38px;
+    height: 38px;
+  }
+
+  /* If desktop nav shows accidentally on small screens */
+  .appNav{ display: none; }
+}
+
+/* =========================
+   RESPONSIVE (PHONE/TABLET UX)
+   ========================= */
+
+/* Tablet */
+@media (max-width: 1024px){
+  .container{ padding: 12px; }
+  .card{ padding: 12px; }
+  input, textarea, select{ padding: 11px 12px; }
+  .appTopbarInner{ gap: 12px; }
+}
+
+/* ✅ Tablet menu grid: 3 columns feels cleaner */
+@media (min-width: 600px) and (max-width: 900px){
+  .appMenuGrid{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Phone */
+@media (max-width: 768px){
+  h2{ font-size: 18px; }
+  h3{ font-size: 15px; }
+
+  .container{ padding: 12px; }
+
+  .card{
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  button{
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .badge{
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+
+  /* TABLE UX: reduce forced min-width so it feels more responsive */
+  .tableWrap table{
+    min-width: 560px;
+  }
+
+  thead th,
+  tbody td{
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  /* Auto-stack inline grid layouts from your pages */
+  form > div[style*="grid-template-columns"]{
+    grid-template-columns: 1fr !important;
+  }
+  .card > div[style*="grid-template-columns"]{
+    grid-template-columns: 1fr !important;
+  }
+
+  .appNavLink{ padding: 10px 12px; }
+}
+
+/* Very small phones */
+@media (max-width: 480px){
+  button{ width: 100%; }
+
+  /* iOS zoom prevention */
+  input, textarea, select{ font-size: 16px; }
+
+  .appTab{ padding: 10px 8px; }
+
+  /* Even smaller table min-width for tiny screens */
+  .tableWrap table{
+    min-width: 520px;
+  }
+}
+
+/* ===== Modal ===== */
+/* Put modal above bottom tabs (tabs use z-index:60) */
+.modal-backdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+}
+
+/* Default modal (desktop/tablet centered) */
+.modal{
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--card);
+  border-radius: var(--r-md);
+  box-shadow: 0 30px 80px rgba(0,0,0,.25);
+  padding: 16px;
+  border: 1px solid rgba(0,0,0,.10);
+}
+
+/* ✅ Phone modal: true fullscreen and safe-area */
+@media (max-width: 768px){
+  .modal-backdrop{
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  .modal{
+    max-width: 100%;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+    padding: 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce){
+  *{
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}
