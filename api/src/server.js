@@ -2,78 +2,99 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import routes from "./routes/index.js";
+import {
+  credentialsMatch,
+  isAuthConfigured,
+  issueSessionToken,
+  validateAuthEnvironment,
+  verifySessionToken,
+} from "./security/auth.js";
+import { createRateLimiter } from "./security/rateLimit.js";
+import {
+  buildCorsOptions,
+  errorHandler,
+  productionErrorResponseGuard,
+  rejectOversizedUrls,
+  securityHeaders,
+} from "./security/http.js";
 
-dotenv.config(); // ✅ FIXED for Render
+dotenv.config();
 
 const app = express();
 
-// ✅ CORS (tighten later with frontend URL)
-app.use(cors());
-app.use(express.json());
+app.disable("x-powered-by");
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || 1));
+app.set("query parser", "simple");
 
-/**
- * =========================
- * Single Nurse Auth
- * =========================
- */
-function requireEnv(name) {
-  if (!process.env[name]) {
-    console.warn(`[WARN] Missing env var: ${name}`);
-  }
-}
-requireEnv("NURSE_USERNAME");
-requireEnv("NURSE_PASSWORD");
-requireEnv("NURSE_TOKEN");
+app.use(rejectOversizedUrls());
+app.use(securityHeaders);
+app.use(productionErrorResponseGuard);
+app.use(cors(buildCorsOptions()));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "100kb", strict: true }));
+
+const authLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 5),
+  keyPrefix: "auth-login",
+  message: "Too many login attempts. Please wait and try again.",
+});
+
+const apiLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: Number(process.env.API_RATE_LIMIT_MAX || 300),
+  keyPrefix: "api",
+});
+
+validateAuthEnvironment();
 
 function getBearerToken(req) {
   const h = req.headers.authorization || "";
-  const [type, token] = h.split(" ");
+  const [type, token] = h.split(/\s+/);
   if (type !== "Bearer") return "";
   return token || "";
 }
 
-// ✅ Login endpoint (public)
-app.post("/api/auth/login", (req, res) => {
-  const { username, password } = req.body || {};
+app.post("/api/auth/login", authLimiter, (req, res) => {
+  const { username, password, remember = false } = req.body || {};
 
-  if (
-    !process.env.NURSE_USERNAME ||
-    !process.env.NURSE_PASSWORD ||
-    !process.env.NURSE_TOKEN
-  ) {
+  if (!isAuthConfigured()) {
     return res.status(500).json({
       error: "Server auth not configured",
     });
   }
 
-  if (
-    username !== process.env.NURSE_USERNAME ||
-    password !== process.env.NURSE_PASSWORD
-  ) {
+  if (typeof username !== "string" || typeof password !== "string") {
+    return res.status(400).json({ error: "Username and password are required." });
+  }
+
+  if (username.length > 128 || password.length > 256 || !credentialsMatch(username, password)) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 
-  return res.json({ token: process.env.NURSE_TOKEN });
+  const session = issueSessionToken({ remember: Boolean(remember) });
+  return res.json({ token: session.token, expires_at: session.expiresAt });
 });
 
-// ✅ Protect all /api routes except login
-app.use("/api", (req, res, next) => {
+app.use("/api", apiLimiter, (req, res, next) => {
   if (req.path === "/auth/login") return next();
 
-  const token = getBearerToken(req);
-  if (token !== process.env.NURSE_TOKEN) {
-    return res.status(401).json({ error: "Unauthorized" });
+  const session = verifySessionToken(getBearerToken(req));
+  if (!session.ok) {
+    return res.status(401).json({
+      error: session.code === "expired" ? "Session expired" : "Unauthorized",
+      code: session.code === "expired" ? "SESSION_EXPIRED" : "UNAUTHORIZED",
+    });
   }
-  next();
+
+  return next();
 });
 
-// ✅ Protected routes
 app.use("/api", routes);
 
-// ✅ Health check (public)
 app.get("/health", (_, res) => res.json({ ok: true }));
 
-// ✅ Render-compatible port
+app.use(errorHandler);
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`API running on port ${PORT}`);

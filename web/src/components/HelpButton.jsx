@@ -85,7 +85,7 @@ function TourOverlay({ steps, onClose }) {
         setRect(el.getBoundingClientRect());
       }, 380);
     } else {
-      setRect(null);
+      timerRef.current = setTimeout(() => setRect(null), 0);
     }
 
     return () => clearTimeout(timerRef.current);
@@ -148,7 +148,6 @@ function TourOverlay({ steps, onClose }) {
     const below = h - (spot.y + spot.h);
     const above = spot.y;
     const right = w - (spot.x + spot.w);
-    const left  = spot.x;
 
     if (below >= TH + MARGIN) {
       tipStyle = {
@@ -318,7 +317,10 @@ function HelpModal({ onClose }) {
   const [step, setStep] = useState(0);
   const topic = GUIDE_TOPICS.find((t) => t.id === topicId) ?? GUIDE_TOPICS[0];
 
-  useEffect(() => { setStep(0); }, [topicId]);
+  function selectTopic(id) {
+    setTopicId(id);
+    setStep(0);
+  }
 
   useEffect(() => {
     function onKey(e) {
@@ -348,7 +350,7 @@ function HelpModal({ onClose }) {
           <div style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflowY: "auto", padding: "10px 8px", background: "var(--surface-soft)" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", padding: "4px 8px 8px", textTransform: "uppercase", letterSpacing: ".5px" }}>Topics</div>
             {GUIDE_TOPICS.map((t) => (
-              <button key={t.id} onClick={() => setTopicId(t.id)}
+              <button key={t.id} onClick={() => selectTopic(t.id)}
                 style={{ width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: topicId === t.id ? 700 : 500, background: topicId === t.id ? "var(--brand-soft)" : "transparent", color: topicId === t.id ? "var(--brand)" : "var(--ink)", marginBottom: 2 }}>
                 <span style={{ fontSize: 16 }}>{t.icon}</span>{t.title}
               </button>
@@ -385,7 +387,7 @@ function HelpModal({ onClose }) {
               {step < topic.steps.length - 1 ? (
                 <button onClick={() => setStep((s) => s + 1)} className="primary" style={{ padding: "8px 18px" }}>Next →</button>
               ) : (
-                <button onClick={() => { const ni = GUIDE_TOPICS.findIndex((t) => t.id === topicId) + 1; ni < GUIDE_TOPICS.length ? setTopicId(GUIDE_TOPICS[ni].id) : onClose(); }} className="primary" style={{ padding: "8px 18px", background: "var(--success)" }}>
+                <button onClick={() => { const ni = GUIDE_TOPICS.findIndex((t) => t.id === topicId) + 1; ni < GUIDE_TOPICS.length ? selectTopic(GUIDE_TOPICS[ni].id) : onClose(); }} className="primary" style={{ padding: "8px 18px", background: "var(--success)" }}>
                   {GUIDE_TOPICS.findIndex((t) => t.id === topicId) < GUIDE_TOPICS.length - 1 ? "Next topic →" : "Done ✓"}
                 </button>
               )}

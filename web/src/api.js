@@ -1,29 +1,50 @@
-const BASE = import.meta.env.VITE_API_BASE;
+const BASE = import.meta.env.VITE_API_BASE || "";
 
 const TOKEN_KEY = "nurse_token";
+const TOKEN_EXPIRY_KEY = "nurse_token_expires_at";
 
 function getStorage(remember) {
   return remember ? window.localStorage : window.sessionStorage;
 }
 
+function removeTokenFromStorage(storage) {
+  storage.removeItem(TOKEN_KEY);
+  storage.removeItem(TOKEN_EXPIRY_KEY);
+}
+
+function readTokenFromStorage(storage) {
+  const token = storage.getItem(TOKEN_KEY);
+  if (!token) return "";
+
+  const expiresAt = storage.getItem(TOKEN_EXPIRY_KEY);
+  if (!expiresAt || Number.isNaN(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now()) {
+    removeTokenFromStorage(storage);
+    return "";
+  }
+
+  return token;
+}
+
 export function getNurseToken() {
   return (
-    window.sessionStorage.getItem(TOKEN_KEY) ||
-    window.localStorage.getItem(TOKEN_KEY) ||
+    readTokenFromStorage(window.sessionStorage) ||
+    readTokenFromStorage(window.localStorage) ||
     ""
   );
 }
 
-export function setNurseToken(token, { remember = true } = {}) {
+export function setNurseToken(token, { remember = false, expiresAt } = {}) {
   clearNurseToken();
 
-  if (!token) return;
-  getStorage(remember).setItem(TOKEN_KEY, token);
+  if (!token || !expiresAt) return;
+  const storage = getStorage(remember);
+  storage.setItem(TOKEN_KEY, token);
+  storage.setItem(TOKEN_EXPIRY_KEY, expiresAt);
 }
 
 export function clearNurseToken() {
-  window.sessionStorage.removeItem(TOKEN_KEY);
-  window.localStorage.removeItem(TOKEN_KEY);
+  removeTokenFromStorage(window.sessionStorage);
+  removeTokenFromStorage(window.localStorage);
 }
 
 function authHeaders() {
@@ -119,18 +140,20 @@ export function formatApiError(error, fallback = "Something went wrong. Please t
   return String(message).replace(/^Error:\s*/i, "") || fallback;
 }
 
-export async function nurseLogin(username, password, { remember = true } = {}) {
+export async function nurseLogin(username, password, { remember = false } = {}) {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, remember }),
   });
 
   const data = await handleResponse(res);
 
   const token = data?.token || "";
+  const expiresAt = data?.expires_at || "";
   if (!token) throw new Error("Login succeeded but no token returned.");
+  if (!expiresAt) throw new Error("Login succeeded but no expiry returned.");
 
-  setNurseToken(token, { remember });
+  setNurseToken(token, { remember, expiresAt });
   return token;
 }

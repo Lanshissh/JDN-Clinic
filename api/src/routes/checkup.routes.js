@@ -1,5 +1,4 @@
 import { Router } from "express";
-import multer from "multer";
 import {
   listCheckups,
   getCheckupById,
@@ -9,16 +8,17 @@ import {
   bulkUpdateStatus,
   uploadCheckupImages,
 } from "../controllers/checkup.controller.js";
+import { requireUuidParam } from "../middleware/validate.js";
+import { imageUpload } from "../middleware/uploads.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 router.get("/", listCheckups);
-router.get("/:id", getCheckupById);
+router.get("/:id", requireUuidParam(), getCheckupById);
 router.post("/", createCheckup);
-router.put("/:id", updateCheckup);
-router.delete("/:id", deleteCheckup);
+router.put("/:id", requireUuidParam(), updateCheckup);
+router.delete("/:id", requireUuidParam(), deleteCheckup);
 router.patch("/bulk-status", bulkUpdateStatus);
-router.post("/:id/images", upload.array("files", 10), uploadCheckupImages);
+router.post("/:id/images", requireUuidParam(), imageUpload.array("files", 10), uploadCheckupImages);
 
 export default router;

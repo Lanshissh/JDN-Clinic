@@ -3,6 +3,11 @@ import {
   inpatientCreateSchema,
   inpatientUpdateSchema,
 } from "../validators/inpatient.schema.js";
+import {
+  clinicImagesBucket,
+  imageStoragePath,
+  validateUploadedImages,
+} from "../middleware/uploads.js";
 
 export async function listInpatient(req, res) {
   // Optional filters: ?from=2026-01-01&to=2026-01-31&name=Juan
@@ -88,23 +93,8 @@ export async function uploadInpatientImages(req, res) {
 
   if (!files?.length) return res.status(400).json({ error: "No files uploaded." });
 
-  await supabase.storage.createBucket("clinic-images", { public: true }).catch(() => {});
-
-  const uploadedUrls = [];
-  for (const file of files) {
-    const ext = (file.mimetype.split("/")[1] || "jpg").replace("jpeg", "jpg");
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const path = `inpatient/${id}/${filename}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("clinic-images")
-      .upload(path, file.buffer, { contentType: file.mimetype, upsert: false });
-
-    if (uploadError) return res.status(500).json({ error: `Storage upload failed: ${uploadError.message}` });
-
-    const { data: { publicUrl } } = supabase.storage.from("clinic-images").getPublicUrl(path);
-    uploadedUrls.push(publicUrl);
-  }
+  const validated = validateUploadedImages(files);
+  if (!validated.ok) return res.status(400).json({ error: validated.error });
 
   const { data: existing, error: fetchErr } = await supabase
     .from("inpatient_visits")
@@ -113,6 +103,22 @@ export async function uploadInpatientImages(req, res) {
     .single();
 
   if (fetchErr) return res.status(404).json({ error: "Inpatient record not found." });
+
+  const uploadedUrls = [];
+  const bucket = clinicImagesBucket();
+
+  for (const image of validated.files) {
+    const path = imageStoragePath("inpatient", id, image.ext);
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, image.file.buffer, { contentType: image.mime, upsert: false });
+
+    if (uploadError) return res.status(500).json({ error: "Storage upload failed." });
+
+    const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(path);
+    uploadedUrls.push(publicUrl);
+  }
 
   const existingUrls = Array.isArray(existing?.image_urls) ? existing.image_urls : [];
   const allUrls = [...existingUrls, ...uploadedUrls];

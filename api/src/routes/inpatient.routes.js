@@ -1,5 +1,4 @@
 import { Router } from "express";
-import multer from "multer";
 import {
   listInpatient,
   getInpatientById,
@@ -8,15 +7,16 @@ import {
   deleteInpatient,
   uploadInpatientImages,
 } from "../controllers/inpatient.controller.js";
+import { requireUuidParam } from "../middleware/validate.js";
+import { imageUpload } from "../middleware/uploads.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 router.get("/", listInpatient);
-router.get("/:id", getInpatientById);
+router.get("/:id", requireUuidParam(), getInpatientById);
 router.post("/", createInpatient);
-router.put("/:id", updateInpatient);
-router.delete("/:id", deleteInpatient);
-router.post("/:id/images", upload.array("files", 10), uploadInpatientImages);
+router.put("/:id", requireUuidParam(), updateInpatient);
+router.delete("/:id", requireUuidParam(), deleteInpatient);
+router.post("/:id/images", requireUuidParam(), imageUpload.array("files", 10), uploadInpatientImages);
 
 export default router;

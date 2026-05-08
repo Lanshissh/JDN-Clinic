@@ -3,6 +3,12 @@ import {
   checkupCreateSchema,
   checkupUpdateSchema,
 } from "../validators/checkup.schema.js";
+import {
+  clinicImagesBucket,
+  imageStoragePath,
+  validateUploadedImages,
+} from "../middleware/uploads.js";
+import { isUuid } from "../middleware/validate.js";
 
 export async function listCheckups(req, res) {
   // Optional filters:
@@ -88,6 +94,10 @@ export async function bulkUpdateStatus(req, res) {
 
   if (!Array.isArray(ids) || ids.length === 0)
     return res.status(400).json({ error: "ids must be a non-empty array." });
+  if (ids.length > 100)
+    return res.status(400).json({ error: "ids cannot contain more than 100 records." });
+  if (!ids.every(isUuid))
+    return res.status(400).json({ error: "All ids must be valid UUIDs." });
   if (!allowed.includes(status))
     return res.status(400).json({ error: `status must be one of: ${allowed.join(", ")}` });
 
@@ -106,26 +116,9 @@ export async function uploadCheckupImages(req, res) {
 
   if (!files?.length) return res.status(400).json({ error: "No files uploaded." });
 
-  // Ensure bucket exists (ignore already-exists error)
-  await supabase.storage.createBucket("clinic-images", { public: true }).catch(() => {});
+  const validated = validateUploadedImages(files);
+  if (!validated.ok) return res.status(400).json({ error: validated.error });
 
-  const uploadedUrls = [];
-  for (const file of files) {
-    const ext = (file.mimetype.split("/")[1] || "jpg").replace("jpeg", "jpg");
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const path = `checkups/${id}/${filename}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("clinic-images")
-      .upload(path, file.buffer, { contentType: file.mimetype, upsert: false });
-
-    if (uploadError) return res.status(500).json({ error: `Storage upload failed: ${uploadError.message}` });
-
-    const { data: { publicUrl } } = supabase.storage.from("clinic-images").getPublicUrl(path);
-    uploadedUrls.push(publicUrl);
-  }
-
-  // Fetch existing image_urls and append
   const { data: existing, error: fetchErr } = await supabase
     .from("checkup_requests")
     .select("image_urls")
@@ -133,6 +126,22 @@ export async function uploadCheckupImages(req, res) {
     .single();
 
   if (fetchErr) return res.status(404).json({ error: "Checkup not found." });
+
+  const uploadedUrls = [];
+  const bucket = clinicImagesBucket();
+
+  for (const image of validated.files) {
+    const path = imageStoragePath("checkups", id, image.ext);
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, image.file.buffer, { contentType: image.mime, upsert: false });
+
+    if (uploadError) return res.status(500).json({ error: "Storage upload failed." });
+
+    const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(path);
+    uploadedUrls.push(publicUrl);
+  }
 
   const existingUrls = Array.isArray(existing?.image_urls) ? existing.image_urls : [];
   const allUrls = [...existingUrls, ...uploadedUrls];

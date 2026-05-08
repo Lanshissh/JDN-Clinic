@@ -178,7 +178,7 @@ function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(false);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -200,12 +200,12 @@ function LoginPage() {
     <main className="loginPage">
       <div className="loginOverlay" aria-hidden="true" />
 
-      <section className="loginPanel" aria-label="Nursing system sign in">
+      <section className="loginPanel" aria-label="Clinic system sign in">
         <div className="loginBrandRow">
           <img src={LOGO_SRC} alt="JDN Clinic logo" className="loginLogo" />
           <div>
             <div className="loginEyebrow">JDN Clinic</div>
-            <div className="loginBrandTitle">Nursing System</div>
+            <div className="loginBrandTitle">Clinic System</div>
           </div>
         </div>
 
@@ -307,7 +307,7 @@ function SidebarNav({ onNavigate, dark, onToggleTheme }) {
         <img src={LOGO_SRC} alt="JDN logo" className="sidebarLogo" />
         <div className="sidebarBrandCopy">
           <div className="sidebarTitle">JDN Clinic</div>
-          <div className="sidebarSubtitle">Nursing System</div>
+          <div className="sidebarSubtitle">Clinic System</div>
         </div>
       </div>
 
@@ -435,7 +435,7 @@ function AppShell() {
                 <img src={LOGO_SRC} alt="JDN logo" className="mobileLogo" />
                 <div>
                   <div className="mobileTitle">JDN Clinic</div>
-                  <div className="mobileSubtitle">Nursing System</div>
+                  <div className="mobileSubtitle">Clinic System</div>
                 </div>
               </div>
               <button

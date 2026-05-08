@@ -1,9 +1,13 @@
 import { supabase } from "../supabase.js";
 import { parseBp } from "../utils/bpParser.js";
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
+
 export async function dailyReport(req, res) {
   const date = req.query.date;
   if (!date) return res.status(400).json({ error: "date is required (YYYY-MM-DD)" });
+  if (!DATE_RE.test(String(date))) return res.status(400).json({ error: "date must be YYYY-MM-DD" });
 
   const [inpatient, bp, checkups] = await Promise.all([
     supabase.from("inpatient_visits").select("*").eq("visit_date", date).order("visit_time", { ascending: true }),
@@ -31,6 +35,7 @@ export async function dailyReport(req, res) {
 export async function monthlyReport(req, res) {
   const month = req.query.month; // YYYY-MM
   if (!month) return res.status(400).json({ error: "month is required (YYYY-MM)" });
+  if (!MONTH_RE.test(String(month))) return res.status(400).json({ error: "month must be YYYY-MM" });
 
   const from = `${month}-01`;
   const [y, m] = month.split("-").map(Number);
@@ -102,6 +107,7 @@ export async function monthlyReport(req, res) {
 export async function analyticsReport(req, res) {
   const month = req.query.month;
   if (!month) return res.status(400).json({ error: "month is required (YYYY-MM)" });
+  if (!MONTH_RE.test(String(month))) return res.status(400).json({ error: "month must be YYYY-MM" });
 
   const from = `${month}-01`;
   const [y, m] = month.split("-").map(Number);

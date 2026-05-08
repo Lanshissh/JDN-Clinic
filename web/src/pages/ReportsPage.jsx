@@ -740,7 +740,7 @@ export default function ReportsPage() {
                     <div style={{ width: "100%", height: 220 }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Pie data={analytics.bp_classification} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} label={({ label, percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                          <Pie data={analytics.bp_classification} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} label={({ percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
                             {analytics.bp_classification.map((entry) => (
                               <Cell key={entry.label} fill={entry.color} />
                             ))}

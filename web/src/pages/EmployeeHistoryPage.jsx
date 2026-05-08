@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { apiGet, formatApiError, getNurseToken } from "../api";
+import { apiGet, clearNurseToken, formatApiError, getNurseToken } from "../api";
 import DataTable from "../components/DataTable";
 import {
   LineChart,
@@ -273,9 +273,24 @@ function RecordImagesCell({ type, recordId, urls, onUploaded }) {
       });
 
       const text = await res.text();
-      if (!res.ok) throw new Error(text);
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = text;
+      }
+      if (res.status === 401) clearNurseToken();
+      if (!res.ok) {
+        const message =
+          typeof payload === "object" && payload
+            ? payload.error || payload.details
+            : payload;
+        const error = new Error(message || "Upload failed.");
+        error.status = res.status;
+        error.payload = payload;
+        throw error;
+      }
 
-      const payload = JSON.parse(text);
       const newUrls =
         payload?.image_urls || payload?.urls || payload?.images || payload?.data?.image_urls || [];
 

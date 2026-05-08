@@ -7,14 +7,15 @@ import {
   deactivateEmployee,
 } from "../controllers/employees.controller.js";
 import { employeeHistory } from "../controllers/employees.controller.js";
+import { requireUuidParam } from "../middleware/validate.js";
 
 const router = Router();
 
 router.get("/", listEmployees);
-router.get("/:id", getEmployeeById);
+router.get("/:id", requireUuidParam(), getEmployeeById);
 router.post("/", createEmployee);
-router.put("/:id", updateEmployee);
-router.delete("/:id", deactivateEmployee);
-router.get("/:id/history", employeeHistory);
+router.put("/:id", requireUuidParam(), updateEmployee);
+router.delete("/:id", requireUuidParam(), deactivateEmployee);
+router.get("/:id/history", requireUuidParam(), employeeHistory);
 
 export default router;

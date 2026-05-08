@@ -3,6 +3,7 @@ import { supabase } from "../supabase.js";
 export async function globalSearch(req, res) {
   const q = String(req.query.q ?? "").trim();
   if (!q) return res.status(400).json({ error: "q is required" });
+  if (q.length > 100) return res.status(400).json({ error: "q must be 100 characters or fewer" });
 
   const like = `%${q}%`;
 
