@@ -1,5 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost, apiPut, apiDelete } from "../api";
+import { apiGet, apiPost, apiPut, apiDelete, formatApiError } from "../api";
+
+function PrintModal({ row, onClose }) {
+  const clinic = "JDN Clinic";
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, zIndex: 90 }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ width: "min(640px,100%)", background: "#fff", borderRadius: 12, boxShadow: "0 30px 80px rgba(0,0,0,.3)", overflow: "hidden" }}>
+        <div style={{ padding: 16, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 800 }}>Print Record</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="primary" onClick={() => window.print()} style={{ padding: "8px 14px" }}>Print</button>
+            <button className="ghost" onClick={onClose} style={{ padding: "8px 12px" }}>Close</button>
+          </div>
+        </div>
+        <div id="printable-checkup" style={{ padding: 28, fontFamily: "Arial, sans-serif", fontSize: 14, color: "#111" }}>
+          <div style={{ textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{clinic}</div>
+            <div style={{ fontSize: 13, color: "#666" }}>Checkup Request Record</div>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {[
+                ["Date", String(row.request_date ?? "").slice(0, 10)],
+                ["Employee Name", row.employee_name ?? "-"],
+                ["Status", row.status ?? "-"],
+                ["Symptoms", row.symptoms ?? "-"],
+                ["Remarks", row.remarks ?? "-"],
+              ].map(([label, value]) => (
+                <tr key={label}>
+                  <td style={{ fontWeight: 700, padding: "6px 10px 6px 0", width: 140, verticalAlign: "top", color: "#444" }}>{label}</td>
+                  <td style={{ padding: "6px 0", borderBottom: "1px solid #eee" }}>{value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 40, display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ textAlign: "center", borderTop: "1px solid #333", paddingTop: 6, width: 180, fontSize: 12 }}>Nurse Signature</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 import EmployeeSelect from "../components/EmployeeSelect";
 import DataTable from "../components/DataTable";
 import { useNavigate } from "react-router-dom";
@@ -34,11 +79,9 @@ export default function CheckupsPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  // ✅ Modals
   const [openAddModal, setOpenAddModal] = useState(false);
   const [openFilterModal, setOpenFilterModal] = useState(false);
 
-  // ✅ CRUD edit state
   const [mode, setMode] = useState("add"); // "add" | "edit"
   const [editingId, setEditingId] = useState(null);
 
@@ -63,13 +106,11 @@ export default function CheckupsPage() {
   const defaultFrom = toISO(daysAgo(30));
   const defaultTo = toISO(today);
 
-  // ✅ applied filters (server-side supported)
   const [fFrom, setFFrom] = useState(defaultFrom);
   const [fTo, setFTo] = useState(defaultTo);
   const [fName, setFName] = useState("");
   const [fStatus, setFStatus] = useState("");
 
-  // ✅ draft filters (modal inputs)
   const [dfFrom, setDfFrom] = useState(defaultFrom);
   const [dfTo, setDfTo] = useState(defaultTo);
   const [dfName, setDfName] = useState("");
@@ -79,7 +120,12 @@ export default function CheckupsPage() {
   const [loadingRows, setLoadingRows] = useState(false);
   const [rowsErr, setRowsErr] = useState("");
 
-  // ✅ prevent background scroll while ANY modal open + close on ESC
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkStatus, setBulkStatus] = useState("done");
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const [printRow, setPrintRow] = useState(null);
+
   useEffect(() => {
     const anyOpen = openAddModal || openFilterModal;
 
@@ -114,7 +160,7 @@ export default function CheckupsPage() {
       const data = await apiGet(`/api/checkups?${qs.toString()}`);
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
-      setRowsErr(String(e));
+      setRowsErr(formatApiError(e));
     } finally {
       setLoadingRows(false);
     }
@@ -176,10 +222,26 @@ export default function CheckupsPage() {
     setErr("");
     try {
       await apiDelete(`/api/checkups/${id}`);
-      setMsg("Deleted!");
+      setMsg("Deleted.");
       loadRecent();
     } catch (e) {
-      setErr(String(e));
+      setErr(formatApiError(e));
+    }
+  }
+
+  async function bulkUpdate() {
+    if (!selectedIds.size) return;
+    setBulkLoading(true);
+    setErr("");
+    try {
+      await apiPost("/api/checkups/bulk-status", { ids: [...selectedIds], status: bulkStatus });
+      setMsg(`Marked ${selectedIds.size} record(s) as "${bulkStatus}".`);
+      setSelectedIds(new Set());
+      loadRecent();
+    } catch (e) {
+      setErr(formatApiError(e));
+    } finally {
+      setBulkLoading(false);
     }
   }
 
@@ -187,7 +249,10 @@ export default function CheckupsPage() {
     if (row.employee_id) return nav(`/employees/${row.employee_id}`);
 
     const name = String(row.employee_name ?? "").trim();
-    if (!name) return alert("No employee_id and no name to resolve history.");
+    if (!name) {
+      alert("This record is not linked to an employee yet.");
+      return;
+    }
 
     try {
       const found = await apiGet(`/api/employees?active=true&q=${encodeURIComponent(name)}`);
@@ -198,15 +263,15 @@ export default function CheckupsPage() {
       );
       if (exact) return nav(`/employees/${exact.id}`);
 
-      alert("Cannot open history: employee not matched. Add employee_id or ensure exact name in Employees list.");
+      alert("This checkup is not linked to an employee in the master list yet. Edit the record, select the employee, and save it.");
     } catch {
-      alert("Cannot open history: failed to search employees.");
+      alert("Employee history could not be opened right now. Please try again.");
     }
   }
 
   function statusBadge(status) {
     const s = String(status ?? "").toLowerCase();
-    return <span className="badge blue">{s || "—"}</span>;
+    return <span className="badge blue">{s || "-"}</span>;
   }
 
   async function submit(e) {
@@ -227,10 +292,10 @@ export default function CheckupsPage() {
       if (mode === "edit") {
         if (!editingId) throw new Error("Missing checkup id for update.");
         await apiPut(`/api/checkups/${editingId}`, payload);
-        setMsg("Updated!");
+        setMsg("Updated.");
       } else {
         await apiPost("/api/checkups", payload);
-        setMsg("Saved!");
+        setMsg("Saved.");
       }
 
       setForm((f) => ({
@@ -248,7 +313,7 @@ export default function CheckupsPage() {
 
       loadRecent();
     } catch (e2) {
-      setErr(String(e2));
+      setErr(formatApiError(e2));
     }
   }
 
@@ -258,11 +323,31 @@ export default function CheckupsPage() {
     if (fTo) parts.push(`To: ${fTo}`);
     if (String(fName || "").trim()) parts.push(`Name: "${String(fName).trim()}"`);
     if (fStatus) parts.push(`Status: ${fStatus}`);
-    return parts.length ? parts.join(" • ") : "No filters";
+    return parts.length ? parts.join(" | ") : "No filters";
   }, [fFrom, fTo, fName, fStatus]);
 
   const columns = useMemo(
     () => [
+      {
+        key: "__select",
+        header: "",
+        sortable: false,
+        render: (r) => (
+          <input
+            type="checkbox"
+            checked={selectedIds.has(r.id)}
+            onChange={(e) => {
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                if (e.target.checked) next.add(r.id);
+                else next.delete(r.id);
+                return next;
+              });
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ),
+      },
       {
         key: "request_date",
         header: "Date",
@@ -278,12 +363,25 @@ export default function CheckupsPage() {
         sortValue: (r) => String(r.status ?? ""),
       },
       { key: "remarks", header: "Remarks", sortable: false },
+      {
+        key: "__print",
+        header: "",
+        sortable: false,
+        render: (r) => (
+          <button
+            type="button"
+            className="ghost"
+            style={{ padding: "4px 10px", fontSize: 13 }}
+            onClick={(e) => { e.stopPropagation(); setPrintRow(r); }}
+          >
+            Print
+          </button>
+        ),
+      },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [selectedIds]
   );
 
-  // ✅ Shared responsive modal styles
   const modalBase = {
     backdrop: {
       position: "fixed",
@@ -351,11 +449,11 @@ export default function CheckupsPage() {
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" className="primary" onClick={openAdd}>
-            ➕ Add Checkup
+          <button data-tour="checkups-add-btn" type="button" className="primary" onClick={openAdd}>
+            Add Checkup
           </button>
 
-          <button type="button" className="ghost" onClick={openFilters}>
+          <button data-tour="checkups-filters" type="button" className="ghost" onClick={openFilters}>
             Filters
           </button>
 
@@ -367,7 +465,7 @@ export default function CheckupsPage() {
 
       <div className="hr" />
 
-      {/* ✅ Add/Edit Checkup Modal */}
+      {/* Add/Edit Checkup Modal */}
       {openAddModal && (
         <div
           style={{ ...modalBase.backdrop, ...phoneBackdropOverride }}
@@ -397,7 +495,7 @@ export default function CheckupsPage() {
                   onClick={() => setOpenAddModal(false)}
                   style={{ padding: "8px 12px" }}
                 >
-                  ✕ Close
+                  Close
                 </button>
               </div>
             </div>
@@ -507,7 +605,7 @@ export default function CheckupsPage() {
         </div>
       )}
 
-      {/* ✅ Filters Modal */}
+      {/* Filters Modal */}
       {openFilterModal && (
         <div
           style={{ ...modalBase.backdrop, ...phoneBackdropOverride }}
@@ -530,7 +628,7 @@ export default function CheckupsPage() {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>Filters</div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  Set date range, name, and status — then apply.
+                  Set date range, name, and status.
                 </div>
               </div>
 
@@ -540,7 +638,7 @@ export default function CheckupsPage() {
                 onClick={() => setOpenFilterModal(false)}
                 style={{ padding: "8px 12px" }}
               >
-                ✕ Close
+                Close
               </button>
             </div>
 
@@ -627,7 +725,7 @@ export default function CheckupsPage() {
       )}
 
       {/* List Card */}
-      <div className="card" style={{ display: "grid", gap: 12 }}>
+      <div data-tour="checkups-table" className="card" style={{ display: "grid", gap: 12 }}>
         <div
           style={{
             display: "flex",
@@ -640,7 +738,7 @@ export default function CheckupsPage() {
           <div>
             <h3 style={{ marginBottom: 6 }}>Recent Checkups</h3>
             <div className="muted" style={{ fontSize: 13 }}>
-              Click headers to sort. Use Actions to Edit/Delete. Click a row to open the employee’s full history.
+              Checkup records for the selected filter.
             </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
               Active: <b>{activeFilterSummary}</b>
@@ -666,6 +764,25 @@ export default function CheckupsPage() {
           </div>
         )}
 
+        {/* Bulk Action Bar */}
+        {selectedIds.size > 0 && (
+          <div data-tour="checkups-bulk" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", background: "var(--brand-soft)", borderRadius: 10, border: "1px solid rgba(15,107,122,.2)" }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>{selectedIds.size} selected</span>
+            <span className="muted" style={{ fontSize: 13 }}>Mark as:</span>
+            <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} style={{ padding: "6px 10px" }}>
+              <option value="done">done</option>
+              <option value="open">open</option>
+              <option value="followup">followup</option>
+            </select>
+            <button type="button" className="primary" onClick={bulkUpdate} disabled={bulkLoading} style={{ padding: "6px 14px" }}>
+              {bulkLoading ? "Updating..." : "Apply"}
+            </button>
+            <button type="button" className="ghost" onClick={() => setSelectedIds(new Set())} style={{ padding: "6px 10px" }}>
+              Clear Selection
+            </button>
+          </div>
+        )}
+
         <DataTable
           columns={columns}
           rows={rows}
@@ -679,12 +796,15 @@ export default function CheckupsPage() {
           defaultPageSize={15}
           pageSizeOptions={[10, 15, 25, 50, 100]}
           maxBodyHeight={520}
+          emptyMessage="No checkup records for this filter."
         />
 
-        <div className="muted" style={{ fontSize: 12 }}>
-          Tip: Use Actions to Edit/Delete. Click the row to open employee history.
+        <div data-tour="checkups-bulk" className="muted" style={{ fontSize: 12 }}>
+          Check rows to select, then use the bulk action bar above to update status. Click Print on any row to print a record.
         </div>
       </div>
+
+      {printRow && <PrintModal row={printRow} onClose={() => setPrintRow(null)} />}
     </div>
   );
 }

@@ -1,8 +1,12 @@
-import { useMemo, useState } from "react";
-import { apiGet } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { apiGet, formatApiError } from "../api";
 import EmployeeSelect from "../components/EmployeeSelect";
 import DataTable from "../components/DataTable";
 import * as XLSX from "xlsx";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell, LineChart, Line,
+} from "recharts";
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
@@ -80,6 +84,51 @@ function dateRange(from, to) {
   return out;
 }
 
+// 37 symptom columns from the In-Patient Record template (In patient.xlsx)
+const INPATIENT_SYMPTOM_COLS = [
+  "Abdel Pain Acid", "Abd'l Pain Spasm", "Abd'l Pain Hypogastric, RUQ",
+  "Ab'l Pain LBM/Constipation", "Allergy", "Animal Bite/Scratch/Insect",
+  "Cough", "Body Malaise", "Colds", "Costochondritis", "Cough & Colds",
+  "Cough, Colds, Fever", "Dizziness", "DOB (difficulty of breathing)",
+  "Menstrual Cramps", "Dysuria", "Epistaxis", "Fainting",
+  "Eyes, Conjunctivitis, Irritation", "Ear Pain/Irritation", "Fever",
+  "Foot and Mouth Symptoms", "Muscle and Joint pain, Flu", "Headache",
+  "Hyperventilation", "Hypertension", "Muscle pain", "Nausea",
+  "Others", "Period Stain", "Sore Throat / Tonsils", "Sprain / Strain",
+  "Stiff Neck", "Toothache", "Viral/Communicable", "Vomiting",
+  "Wound / Accidents",
+];
+
+// Maps comma-separated symptoms text to per-column checkbox values (1 or 0)
+function mapSymptomsToColumns(symptomsText) {
+  const result = new Array(INPATIENT_SYMPTOM_COLS.length).fill(0);
+  if (!symptomsText) return result;
+
+  const othersIdx = INPATIENT_SYMPTOM_COLS.findIndex((c) => c === "Others");
+  const parts = symptomsText.split(",").map((s) => s.trim().toLowerCase());
+  const unmatched = [];
+
+  for (const sym of parts) {
+    if (!sym) continue;
+    let matched = false;
+    for (let i = 0; i < INPATIENT_SYMPTOM_COLS.length; i++) {
+      const col = INPATIENT_SYMPTOM_COLS[i].toLowerCase();
+      // Check if the symptom text is contained in the column name or vice versa
+      const symClean = sym.replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+      const colClean = col.replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+      if (colClean.includes(symClean) || symClean.includes(colClean)) {
+        result[i] = 1;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) unmatched.push(sym);
+  }
+
+  if (unmatched.length > 0 && othersIdx >= 0) result[othersIdx] = 1;
+  return result;
+}
+
 /** XLSX helpers */
 function makeSheet(aoa) {
   return XLSX.utils.aoa_to_sheet(aoa);
@@ -109,8 +158,107 @@ function saveWorkbook({ filename, sheets }) {
   XLSX.writeFile(wb, filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`);
 }
 
+const REPORT_TEMPLATES = {
+  inpatient: { file: "In patient.xlsx", sheet: "In-Patient Record", startRow: 3, columns: 52 },
+  bp: { file: "BP.xlsx", sheet: "BP Monitoring", startRow: 1, columns: 7 },
+  checkups: { file: "For check up.xlsx", sheet: "For Check-up", startRow: 1, columns: 5 },
+};
+
+function templateUrl(fileName) {
+  const base = import.meta.env.BASE_URL || "/";
+  const root = base.endsWith("/") ? base : `${base}/`;
+  return `${root}templates/${encodeURIComponent(fileName)}`;
+}
+
+async function loadTemplateSheet({ file, sheet }) {
+  const res = await fetch(templateUrl(file));
+  if (!res.ok) throw new Error(`Unable to load report template: ${file}`);
+
+  const buffer = await res.arrayBuffer();
+  const wb = XLSX.read(buffer, { cellStyles: true, cellDates: true });
+  const ws = wb.Sheets[sheet] ?? wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error(`Template has no worksheet: ${file}`);
+  return ws;
+}
+
+function blankCell(cell = {}) {
+  const next = { ...cell };
+  delete next.v;
+  delete next.w;
+  delete next.t;
+  delete next.f;
+  return next;
+}
+
+function writeCell(ws, row, col, value, styleTemplate) {
+  const addr = XLSX.utils.encode_cell({ r: row, c: col });
+  const cell = ws[addr] ? { ...ws[addr] } : blankCell(styleTemplate);
+  if (!cell.s && styleTemplate?.s) cell.s = styleTemplate.s;
+
+  delete cell.w;
+  delete cell.f;
+
+  if (value == null || value === "") {
+    ws[addr] = blankCell(cell);
+    return;
+  }
+
+  cell.v = value;
+  cell.t = typeof value === "number" ? "n" : "s";
+  ws[addr] = cell;
+}
+
+function fillTemplateRows(ws, { startRow, columns }, rows) {
+  const existingRange = XLSX.utils.decode_range(ws["!ref"] ?? "A1:A1");
+  const styleRow = [];
+  for (let c = 0; c < columns; c += 1) {
+    const addr = XLSX.utils.encode_cell({ r: startRow, c });
+    styleRow[c] = ws[addr] ? { ...ws[addr] } : {};
+  }
+
+  for (let r = startRow; r <= existingRange.e.r; r += 1) {
+    for (let c = 0; c < columns; c += 1) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      ws[addr] = blankCell(ws[addr] ?? styleRow[c]);
+    }
+  }
+
+  rows.forEach((row, i) => {
+    for (let c = 0; c < columns; c += 1) {
+      writeCell(ws, startRow + i, c, row[c], styleRow[c]);
+    }
+  });
+
+  const nextRange = {
+    s: existingRange.s,
+    e: {
+      r: Math.max(existingRange.e.r, startRow + Math.max(rows.length, 1) - 1),
+      c: Math.max(existingRange.e.c, columns - 1),
+    },
+  };
+  ws["!ref"] = XLSX.utils.encode_range(nextRange);
+}
+
+async function saveTemplatedReportWorkbook({ filename, inpatientRows, bpRows, checkupRows }) {
+  const [inpatientWs, bpWs, checkupsWs] = await Promise.all([
+    loadTemplateSheet(REPORT_TEMPLATES.inpatient),
+    loadTemplateSheet(REPORT_TEMPLATES.bp),
+    loadTemplateSheet(REPORT_TEMPLATES.checkups),
+  ]);
+
+  fillTemplateRows(inpatientWs, REPORT_TEMPLATES.inpatient, inpatientRows);
+  fillTemplateRows(bpWs, REPORT_TEMPLATES.bp, bpRows);
+  fillTemplateRows(checkupsWs, REPORT_TEMPLATES.checkups, checkupRows);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, inpatientWs, REPORT_TEMPLATES.inpatient.sheet);
+  XLSX.utils.book_append_sheet(wb, bpWs, REPORT_TEMPLATES.bp.sheet);
+  XLSX.utils.book_append_sheet(wb, checkupsWs, REPORT_TEMPLATES.checkups.sheet);
+  XLSX.writeFile(wb, filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`, { cellStyles: true });
+}
+
 export default function ReportsPage() {
-  const [tab, setTab] = useState("daily"); // daily | monthly | employee
+  const [tab, setTab] = useState("analytics");
 
   // ----- DAILY (RANGE)
   const [fromDate, setFromDate] = useState(isoToday());
@@ -145,7 +293,7 @@ export default function ReportsPage() {
 
       setDaily({ from: fromDate, to: toDate, days: results });
     } catch (e) {
-      setDailyErr(String(e));
+      setDailyErr(formatApiError(e));
       setDaily(null);
     } finally {
       setDailyLoading(false);
@@ -165,7 +313,7 @@ export default function ReportsPage() {
       const r = await apiGet(`/api/reports/monthly?month=${month}`);
       setMonthly(r);
     } catch (e) {
-      setMonthlyErr(String(e));
+      setMonthlyErr(formatApiError(e));
       setMonthly(null);
     } finally {
       setMonthlyLoading(false);
@@ -197,83 +345,79 @@ export default function ReportsPage() {
       const r = await apiGet(`/api/employees/${empId}/history?${qs.toString()}`);
       setHistory(r);
     } catch (e) {
-      setHistoryErr(String(e));
+      setHistoryErr(formatApiError(e));
       setHistory(null);
     } finally {
       setHistoryLoading(false);
     }
   }
 
-  // ----- EXPORT: DAILY RANGE (XLSX with 3 sheets)
-  function exportDailyExcel() {
+  // ----- EXPORT: DAILY RANGE (uses clinic XLSX templates)
+  async function exportDailyExcel() {
     if (!daily?.days?.length) return;
 
-    const inpatientAoa = [
-      [`Daily Report (Range): ${daily.from} → ${daily.to}`],
-      [],
-      ["Date", "Time", "Name", "Dept", "Complaint", "Evaluation", "Symptoms", "Intervention", "Notes"],
-    ];
-
-    const bpAoa = [
-      [`Daily Report (Range): ${daily.from} → ${daily.to}`],
-      [],
-      ["Date", "Time", "Name", "Age", "Designation", "BP", "Intervention"],
-    ];
-
-    const checkupsAoa = [
-      [`Daily Report (Range): ${daily.from} → ${daily.to}`],
-      [],
-      ["Date", "Name", "Symptoms", "Status", "Remarks"],
-    ];
+    const inpatientRows = [];
+    const bpRows = [];
+    const checkupRows = [];
+    let checkupNum = 1;
 
     for (const day of daily.days) {
       const d = day?.date ?? "";
 
       for (const r of day.inpatient ?? []) {
-        inpatientAoa.push([
-          d,
+        const symCols = mapSymptomsToColumns(r.symptoms);
+        inpatientRows.push([
+          String(r.visit_date ?? d).slice(0, 10),
           r.visit_time ?? "",
           r.name ?? "",
+          r.age ?? "",
           r.department ?? "",
           r.chief_complaint ?? "",
-          r.disposition ?? "",
-          r.symptoms ?? "",
+          ...symCols,
+          "",           // TEMP (not in DB)
+          r.bp_text ?? "",
+          "",           // PR (not in DB)
+          "",           // RR (not in DB)
+          "",           // O2 (not in DB)
           r.intervention ?? "",
-          r.notes ?? "",
+          "",           // Medication (not in DB)
+          r.disposition ?? "",
         ]);
       }
 
       for (const r of day.bp ?? []) {
-        bpAoa.push([
-          d,
-          r.log_time ?? "",
+        bpRows.push([
+          String(r.log_date ?? d).slice(0, 10),
           r.employee_name ?? "",
           r.age ?? "",
           r.designation ?? "",
+          r.log_time ?? "",
           r.bp_text ?? "",
           r.intervention ?? "",
         ]);
       }
 
       for (const r of day.checkups ?? []) {
-        checkupsAoa.push([
-          d,
+        checkupRows.push([
+          checkupNum++,
+          String(r.request_date ?? d).slice(0, 10),
           r.employee_name ?? "",
           r.symptoms ?? "",
-          r.status ?? "",
           r.remarks ?? "",
         ]);
       }
     }
 
-    saveWorkbook({
-      filename: `daily-report-${daily.from}-to-${daily.to}.xlsx`,
-      sheets: [
-        { name: "INPATIENT", aoa: inpatientAoa },
-        { name: "BP", aoa: bpAoa },
-        { name: "CHECKUPS", aoa: checkupsAoa },
-      ],
-    });
+    try {
+      await saveTemplatedReportWorkbook({
+        filename: `daily-report-${daily.from}-to-${daily.to}.xlsx`,
+        inpatientRows,
+        bpRows,
+        checkupRows,
+      });
+    } catch (e) {
+      alert(formatApiError(e));
+    }
   }
 
   // ----- EXPORT: MONTHLY (XLSX single sheet)
@@ -281,95 +425,111 @@ export default function ReportsPage() {
     if (!monthly) return;
 
     const t = monthly.totals ?? {};
-    const aoa = [
+    const summaryAoa = [
       ["Monthly Summary", monthly.month ?? month],
       [],
       ["Metric", "Count"],
       ["Inpatient", t.inpatient ?? 0],
-      ["BP", t.bp ?? 0],
-      ["Checkups", t.checkups ?? 0],
-      ["Checkups (done)", t.checkups_done ?? 0],
-      ...(t.checkups_open != null ? [["Checkups (open)", t.checkups_open]] : []),
-      ...(t.checkups_followup != null ? [["Checkups (followup)", t.checkups_followup]] : []),
+      ["BP Logs", t.bp ?? 0],
+      ["Checkups (Total)", t.checkups ?? 0],
+      ["Checkups (Done)", t.checkups_done ?? 0],
+      ["Checkups (Open)", t.checkups_open ?? 0],
+      ["Checkups (Follow-up)", t.checkups_followup ?? 0],
+      [],
+      ["BP Summary"],
+      ["Avg Systolic", monthly.bp_summary?.avg_systolic ?? "-"],
+      ["Avg Diastolic", monthly.bp_summary?.avg_diastolic ?? "-"],
+      ["High BP Count", monthly.bp_summary?.high_bp_count ?? 0],
+    ];
+
+    const symptomsAoa = [
+      ["Top Symptoms", monthly.month ?? month],
+      [],
+      ["Symptom", "Count"],
+      ...(monthly.top_symptoms ?? []).map((s) => [s.name, s.count]),
+    ];
+
+    const deptAoa = [
+      ["Inpatient by Department", monthly.month ?? month],
+      [],
+      ["Department", "Count"],
+      ...(monthly.department_breakdown ?? []).map((d) => [d.department, d.count]),
     ];
 
     saveWorkbook({
       filename: `monthly-summary-${monthly.month ?? month}.xlsx`,
-      sheets: [{ name: "SUMMARY", aoa }],
+      sheets: [
+        { name: "SUMMARY", aoa: summaryAoa },
+        { name: "TOP SYMPTOMS", aoa: symptomsAoa },
+        { name: "DEPARTMENTS", aoa: deptAoa },
+      ],
     });
   }
 
-  // ----- EXPORT: EMPLOYEE HISTORY (XLSX with 3 sheets)
-  function exportHistoryExcel() {
+  // ----- EXPORT: EMPLOYEE HISTORY (uses clinic XLSX templates)
+  async function exportHistoryExcel() {
     if (!history) return;
 
     const emp = history.employee ?? {};
-    const header = [
-      [`Employee History: ${emp.full_name ?? empName ?? ""}`],
-      [`Filter: ${from || "—"} → ${to || "—"}`],
-      [],
-    ];
-
-    const inpatientAoa = [
-      ...header,
-      ["Date", "Time", "Dept", "Complaint", "Symptoms", "BP", "Intervention", "Evaluation", "Notes"],
-    ];
-
-    const bpAoa = [
-      ...header,
-      ["Date", "Time", "BP", "Intervention"],
-    ];
-
-    const checkupsAoa = [
-      ...header,
-      ["Date", "Name", "Status", "Symptoms", "Remarks"],
-    ];
+    const empFullName = emp.full_name ?? empName ?? "";
+    const inpatientRows = [];
+    const bpRows = [];
+    const checkupRows = [];
 
     for (const r of history.inpatient ?? []) {
-      inpatientAoa.push([
-        r.visit_date ?? "",
+      const symCols = mapSymptomsToColumns(r.symptoms);
+      inpatientRows.push([
+        String(r.visit_date ?? "").slice(0, 10),
         r.visit_time ?? "",
+        r.name ?? empFullName,
+        r.age ?? "",
         r.department ?? "",
         r.chief_complaint ?? "",
-        r.symptoms ?? "",
+        ...symCols,
+        "",
         r.bp_text ?? "",
+        "", "", "",
         r.intervention ?? "",
+        "",
         r.disposition ?? "",
-        r.notes ?? "",
       ]);
     }
 
     for (const r of history.bp ?? []) {
-      bpAoa.push([
-        r.log_date ?? "",
+      bpRows.push([
+        String(r.log_date ?? "").slice(0, 10),
+        r.employee_name ?? empFullName,
+        r.age ?? "",
+        r.designation ?? "",
         r.log_time ?? "",
         r.bp_text ?? "",
         r.intervention ?? "",
       ]);
     }
 
+    let checkupNum = 1;
     for (const r of history.checkups ?? []) {
-      checkupsAoa.push([
-        r.request_date ?? "",
-        r.employee_name ?? "",
-        r.status ?? "",
+      checkupRows.push([
+        checkupNum++,
+        String(r.request_date ?? "").slice(0, 10),
+        r.employee_name ?? empFullName,
         r.symptoms ?? "",
         r.remarks ?? "",
       ]);
     }
 
-    const nameSlug = (emp.full_name ?? empName ?? "employee")
-      .replace(/\s+/g, "-")
-      .toLowerCase();
+    const nameSlug = empFullName.replace(/\s+/g, "-").toLowerCase() || "employee";
 
-    saveWorkbook({
-      filename: `employee-history-${nameSlug}.xlsx`,
-      sheets: [
-        { name: "INPATIENT", aoa: inpatientAoa },
-        { name: "BP", aoa: bpAoa },
-        { name: "CHECKUPS", aoa: checkupsAoa },
-      ],
-    });
+    try {
+      await saveTemplatedReportWorkbook({
+        filename: `employee-history-${nameSlug}.xlsx`,
+        inpatientRows,
+        bpRows,
+        checkupRows,
+      });
+    } catch (e) {
+      alert(formatApiError(e));
+    }
   }
 
   // ----- PDF EXPORT
@@ -377,8 +537,37 @@ export default function ReportsPage() {
     window.print();
   }
 
+  // ----- ANALYTICS
+  const [analyticsMonth, setAnalyticsMonth] = useState(isoMonthToday());
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsErr, setAnalyticsErr] = useState("");
+
+  async function loadAnalytics() {
+    setAnalyticsErr("");
+    setAnalyticsLoading(true);
+    try {
+      const r = await apiGet(`/api/reports/analytics?month=${analyticsMonth}`);
+      setAnalytics(r);
+    } catch (e) {
+      setAnalyticsErr(formatApiError(e));
+      setAnalytics(null);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
+  // Auto-load when tab changes (or on first mount)
+  useEffect(() => {
+    if (tab === "analytics") loadAnalytics();
+    if (tab === "monthly") loadMonthly();
+    if (tab === "daily") loadDaily();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   const tabs = useMemo(
     () => [
+      { key: "analytics", label: "Analytics" },
       { key: "daily", label: "Daily Report" },
       { key: "monthly", label: "Monthly Summary" },
       { key: "employee", label: "Employee History" },
@@ -422,18 +611,205 @@ export default function ReportsPage() {
         }}
       >
         <div>
-          <h2 style={{ marginBottom: 6 }}>Reports</h2>
+          <h2 style={{ marginBottom: 6 }}>Analytics & Reports</h2>
           <div className="muted" style={{ fontSize: 13 }}>
-            One-click export to Excel (.xlsx) and PDF (Print → Save as PDF).
+            Export clinic summaries and employee histories.
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div data-tour="reports-tabs" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {tabs.map((t) => tabBtn(t.key, t.label))}
         </div>
       </div>
 
       <div className="hr" />
+
+      {/* ANALYTICS */}
+      {tab === "analytics" && (
+        <div style={{ display: "grid", gap: 16 }}>
+          {/* Inline controls */}
+          <div data-tour="analytics-controls" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="month"
+              value={analyticsMonth}
+              onChange={(e) => setAnalyticsMonth(e.target.value)}
+              onBlur={loadAnalytics}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 14 }}
+            />
+            <button className="ghost" onClick={loadAnalytics} disabled={analyticsLoading} style={{ padding: "8px 14px" }}>
+              {analyticsLoading ? "Refreshing..." : "Refresh"}
+            </button>
+            {analyticsErr && <span style={{ color: "var(--danger)", fontSize: 13 }}>{analyticsErr}</span>}
+            {analyticsLoading && !analytics && <span className="muted" style={{ fontSize: 13 }}>Loading analytics…</span>}
+          </div>
+
+          {analyticsLoading && !analytics ? (
+            <div style={{ display: "grid", gap: 12 }}>
+              {[160, 260, 220].map((h, i) => (
+                <div key={i} style={{ height: h, borderRadius: 12, background: "linear-gradient(90deg, var(--line) 25%, var(--surface-soft) 50%, var(--line) 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.4s infinite" }} />
+              ))}
+            </div>
+          ) : !analytics ? (
+            <div className="card muted" style={{ fontSize: 13 }}>No data for this month yet.</div>
+          ) : (
+            <>
+              {/* KPI Cards */}
+              <div data-tour="analytics-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                {[
+                  { label: "Inpatient", value: analytics.totals.inpatient, color: "#0f6b7a" },
+                  { label: "BP Logs", value: analytics.totals.bp, color: "#b86e00" },
+                  { label: "Checkups", value: analytics.totals.checkups, color: "#147a4c" },
+                  { label: "High BP", value: analytics.bp_summary?.high_count ?? 0, color: "#b42318" },
+                ].map((k) => (
+                  <div key={k.label} className="card" style={{ boxShadow: "none", borderLeft: `4px solid ${k.color}`, paddingLeft: 14 }}>
+                    <div className="muted" style={{ fontSize: 12 }}>{k.label}</div>
+                    <div style={{ fontSize: 32, fontWeight: 950, color: k.color }}>{k.value}</div>
+                  </div>
+                ))}
+                {analytics.bp_summary?.avg_systolic != null && (
+                  <div className="card" style={{ boxShadow: "none", borderLeft: "4px solid #b86e00", paddingLeft: 14 }}>
+                    <div className="muted" style={{ fontSize: 12 }}>Avg BP</div>
+                    <div style={{ fontSize: 22, fontWeight: 950, color: "#b86e00" }}>
+                      {analytics.bp_summary.avg_systolic}/{analytics.bp_summary.avg_diastolic}
+                    </div>
+                    <div className="muted" style={{ fontSize: 11 }}>mmHg</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Daily Activity Bar Chart */}
+              <div data-tour="analytics-daily-chart" className="card" style={{ display: "grid", gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 15 }}>Daily Activity — {analytics.month}</div>
+                  <div className="muted" style={{ fontSize: 13 }}>Inpatient, BP, and Checkup visits per day.</div>
+                </div>
+                <div style={{ width: "100%", height: 260 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analytics.daily_trend} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barSize={6}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.07)" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="inpatient" name="Inpatient" fill="#0f6b7a" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="bp" name="BP" fill="#b86e00" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="checkups" name="Checkups" fill="#147a4c" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div data-tour="analytics-donuts" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
+                {/* Checkup Status Donut */}
+                {analytics.checkup_status?.length > 0 && (
+                  <div className="card" style={{ display: "grid", gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15 }}>Checkup Status</div>
+                      <div className="muted" style={{ fontSize: 13 }}>Done vs Open vs Follow-up.</div>
+                    </div>
+                    <div style={{ width: "100%", height: 220 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={analytics.checkup_status} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} label={({ label, percent }) => `${label} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                            {analytics.checkup_status.map((entry) => (
+                              <Cell key={entry.label} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v, name) => [v, name]} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                      {analytics.checkup_status.map((s) => (
+                        <span key={s.label} style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: "50%", background: s.color, display: "inline-block" }} />
+                          {s.label}: <b>{s.value}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* BP Classification Donut */}
+                {analytics.bp_classification?.length > 0 && (
+                  <div className="card" style={{ display: "grid", gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15 }}>BP Classification</div>
+                      <div className="muted" style={{ fontSize: 13 }}>Normal / Elevated / High.</div>
+                    </div>
+                    <div style={{ width: "100%", height: 220 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={analytics.bp_classification} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} label={({ label, percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                            {analytics.bp_classification.map((entry) => (
+                              <Cell key={entry.label} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v, name) => [v, name]} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                      {analytics.bp_classification.map((s) => (
+                        <span key={s.label} style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: "50%", background: s.color, display: "inline-block" }} />
+                          {s.label}: <b>{s.value}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Top Symptoms Bar Chart */}
+              {analytics.top_symptoms?.length > 0 ? (
+                <div data-tour="analytics-symptoms" className="card" style={{ display: "grid", gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>Top Symptoms</div>
+                    <div className="muted" style={{ fontSize: 13 }}>Most reported symptoms from checkup records.</div>
+                  </div>
+                  <div style={{ width: "100%", height: Math.max(200, analytics.top_symptoms.length * 36) }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analytics.top_symptoms} layout="vertical" margin={{ top: 4, right: 20, left: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.07)" horizontal={false} />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+                        <Tooltip />
+                        <Bar dataKey="count" name="Cases" fill="#0f6b7a" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ) : (
+                <div data-tour="analytics-symptoms" className="card muted" style={{ fontSize: 13 }}>
+                  No symptom trends for this month yet.
+                </div>
+              )}
+
+              {/* Department Breakdown Bar Chart */}
+              {analytics.department_breakdown?.length > 0 && (
+                <div className="card" style={{ display: "grid", gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>Inpatient by Department</div>
+                    <div className="muted" style={{ fontSize: 13 }}>Which departments had the most visits.</div>
+                  </div>
+                  <div style={{ width: "100%", height: Math.max(200, analytics.department_breakdown.length * 42) }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analytics.department_breakdown} layout="vertical" margin={{ top: 4, right: 20, left: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,.07)" horizontal={false} />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis type="category" dataKey="department" width={130} tick={{ fontSize: 12 }} />
+                        <Tooltip />
+                        <Bar dataKey="count" name="Visits" fill="#b86e00" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* DAILY */}
       {tab === "daily" && (
@@ -449,54 +825,31 @@ export default function ReportsPage() {
             />
           }
         >
-          <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
-            <label>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}>
               From
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-              />
+              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 14 }} />
             </label>
-
-            <label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}>
               To
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-              />
+              <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 14 }} />
             </label>
-
-            <button
-              type="button"
-              className="primary"
-              onClick={loadDaily}
-              disabled={dailyLoading}
-            >
+            <button type="button" className="primary" onClick={loadDaily} disabled={dailyLoading} style={{ padding: "8px 16px" }}>
               {dailyLoading ? "Loading..." : "Load"}
             </button>
-
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => setDaily(null)}
-              disabled={dailyLoading}
-            >
+            <button type="button" className="ghost" onClick={() => setDaily(null)} disabled={dailyLoading} style={{ padding: "8px 12px" }}>
               Clear
             </button>
           </div>
 
-          {dailyErr && (
-            <div style={{ color: "var(--danger)", whiteSpace: "pre-wrap" }}>
-              {dailyErr}
-            </div>
-          )}
+          {dailyErr && <div style={{ color: "var(--danger)", whiteSpace: "pre-wrap" }}>{dailyErr}</div>}
 
-          {!daily?.days?.length ? (
-            <div className="muted" style={{ fontSize: 13 }}>
-              Load a date range to view the report.
-            </div>
+          {dailyLoading && !daily ? (
+            <div className="muted" style={{ fontSize: 13 }}>Loading daily report…</div>
+          ) : !daily?.days?.length ? (
+            <div className="muted" style={{ fontSize: 13 }}>No records for this date range.</div>
           ) : (
             <>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -586,70 +939,81 @@ export default function ReportsPage() {
             />
           }
         >
-          <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
-            <label>
-              Month
-              <input
-                type="month"
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-              />
-            </label>
-
-            <button
-              type="button"
-              className="primary"
-              onClick={loadMonthly}
-              disabled={monthlyLoading}
-            >
-              {monthlyLoading ? "Loading..." : "Load"}
-            </button>
-
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => setMonthly(null)}
-              disabled={monthlyLoading}
-            >
-              Clear
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              onBlur={loadMonthly}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 14 }}
+            />
+            <button type="button" className="ghost" onClick={loadMonthly} disabled={monthlyLoading} style={{ padding: "8px 14px" }}>
+              {monthlyLoading ? "Refreshing..." : "Refresh"}
             </button>
           </div>
 
-          {monthlyErr && (
-            <div style={{ color: "var(--danger)", whiteSpace: "pre-wrap" }}>
-              {monthlyErr}
-            </div>
-          )}
+          {monthlyErr && <div style={{ color: "var(--danger)", whiteSpace: "pre-wrap" }}>{monthlyErr}</div>}
 
-          {!monthly ? (
-            <div className="muted" style={{ fontSize: 13 }}>
-              Load a month to view the summary.
-            </div>
+          {monthlyLoading && !monthly ? (
+            <div className="muted" style={{ fontSize: 13 }}>Loading summary…</div>
+          ) : !monthly ? (
+            <div className="muted" style={{ fontSize: 13 }}>No data for this month.</div>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <div className="card" style={{ boxShadow: "none" }}>
-                <div className="muted" style={{ fontSize: 13 }}>Inpatient</div>
-                <div style={{ fontSize: 28, fontWeight: 900 }}>{monthly.totals?.inpatient ?? 0}</div>
-              </div>
-
-              <div className="card" style={{ boxShadow: "none" }}>
-                <div className="muted" style={{ fontSize: 13 }}>BP Logs</div>
-                <div style={{ fontSize: 28, fontWeight: 900 }}>{monthly.totals?.bp ?? 0}</div>
-              </div>
-
-              <div className="card" style={{ boxShadow: "none" }}>
-                <div className="muted" style={{ fontSize: 13 }}>Checkups</div>
-                <div style={{ fontSize: 28, fontWeight: 900 }}>{monthly.totals?.checkups ?? 0}</div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                  Done: <b>{monthly.totals?.checkups_done ?? 0}</b>
+            <div style={{ display: "grid", gap: 16 }}>
+              {/* Totals row */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+                <div className="card" style={{ boxShadow: "none" }}>
+                  <div className="muted" style={{ fontSize: 13 }}>Inpatient</div>
+                  <div style={{ fontSize: 28, fontWeight: 900 }}>{monthly.totals?.inpatient ?? 0}</div>
+                </div>
+                <div className="card" style={{ boxShadow: "none" }}>
+                  <div className="muted" style={{ fontSize: 13 }}>BP Logs</div>
+                  <div style={{ fontSize: 28, fontWeight: 900 }}>{monthly.totals?.bp ?? 0}</div>
+                  {monthly.bp_summary?.avg_systolic != null && (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                      Avg: <b>{monthly.bp_summary.avg_systolic}/{monthly.bp_summary.avg_diastolic} mmHg</b>
+                      {monthly.bp_summary.high_bp_count > 0 && (
+                        <span style={{ color: "var(--danger)", marginLeft: 6 }}>High: {monthly.bp_summary.high_bp_count}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="card" style={{ boxShadow: "none" }}>
+                  <div className="muted" style={{ fontSize: 13 }}>Checkups</div>
+                  <div style={{ fontSize: 28, fontWeight: 900 }}>{monthly.totals?.checkups ?? 0}</div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    Done: <b>{monthly.totals?.checkups_done ?? 0}</b> | Open: <b>{monthly.totals?.checkups_open ?? 0}</b> | Follow-up: <b>{monthly.totals?.checkups_followup ?? 0}</b>
+                  </div>
                 </div>
               </div>
+
+              {/* Top Symptoms */}
+              {(monthly.top_symptoms ?? []).length > 0 && (
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Top Symptoms This Month</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {monthly.top_symptoms.map((s) => (
+                      <div key={s.name} style={{ background: "var(--brand-soft)", border: "1px solid rgba(15,107,122,.2)", borderRadius: 8, padding: "5px 12px", fontSize: 13 }}>
+                        <b>{s.count}×</b> {s.name}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Department Breakdown */}
+              {(monthly.department_breakdown ?? []).length > 0 && (
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Inpatient by Department</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {monthly.department_breakdown.map((d) => (
+                      <div key={d.department} style={{ background: "var(--surface-soft)", border: "1px solid var(--line)", borderRadius: 8, padding: "5px 12px", fontSize: 13 }}>
+                        <b>{d.count}</b> — {d.department}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </Section>
@@ -787,8 +1151,15 @@ export default function ReportsPage() {
       )}
 
       <div style={{ marginTop: 12 }} className="muted">
-        PDF export uses your browser print dialog → choose <b>Save as PDF</b>.
+        Tip: Change the month picker to reload data automatically. PDF export opens the browser print dialog.
       </div>
+
+      <style>{`
+        @keyframes shimmer {
+          0%   { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
     </div>
   );
 }

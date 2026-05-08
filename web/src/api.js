@@ -2,17 +2,11 @@ const BASE = import.meta.env.VITE_API_BASE;
 
 const TOKEN_KEY = "nurse_token";
 
-/**
- * Token storage strategy:
- * - "remember me" ON  => localStorage (persistent)
- * - "remember me" OFF => sessionStorage (clears when tab/browser closes)
- */
 function getStorage(remember) {
   return remember ? window.localStorage : window.sessionStorage;
 }
 
 export function getNurseToken() {
-  // Prefer session token (current session) then fallback to remembered token
   return (
     window.sessionStorage.getItem(TOKEN_KEY) ||
     window.localStorage.getItem(TOKEN_KEY) ||
@@ -21,7 +15,6 @@ export function getNurseToken() {
 }
 
 export function setNurseToken(token, { remember = true } = {}) {
-  // Clear both first so we don't keep duplicates
   clearNurseToken();
 
   if (!token) return;
@@ -38,17 +31,7 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function handleResponse(res) {
-  if (res.status === 401) {
-    // token missing/invalid → force logout
-    clearNurseToken();
-  }
-
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
-
-  // Some endpoints may return empty body
+async function parseResponseBody(res) {
   const text = await res.text();
   if (!text) return null;
 
@@ -57,6 +40,28 @@ async function handleResponse(res) {
   } catch {
     return text;
   }
+}
+
+async function handleResponse(res) {
+  if (res.status === 401) {
+    clearNurseToken();
+  }
+
+  const body = await parseResponseBody(res);
+
+  if (!res.ok) {
+    const message =
+      typeof body === "object" && body
+        ? body.details || body.error || `Request failed with status ${res.status}`
+        : body || `Request failed with status ${res.status}`;
+
+    const error = new Error(message);
+    error.status = res.status;
+    error.payload = body;
+    throw error;
+  }
+
+  return body;
 }
 
 export async function apiGet(path) {
@@ -102,12 +107,18 @@ export async function apiDelete(path) {
   return handleResponse(res);
 }
 
-/**
- * ✅ Login helper
- * Backend endpoint: POST /api/auth/login
- * body: { username, password }
- * response: { token }
- */
+export function formatApiError(error, fallback = "Something went wrong. Please try again.") {
+  const payload = error?.payload;
+  const message =
+    (typeof payload === "object" && payload
+      ? payload.details || payload.error
+      : payload) ||
+    error?.message ||
+    fallback;
+
+  return String(message).replace(/^Error:\s*/i, "") || fallback;
+}
+
 export async function nurseLogin(username, password, { remember = true } = {}) {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",

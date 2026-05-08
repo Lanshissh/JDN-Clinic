@@ -81,3 +81,50 @@ export async function deleteInpatient(req, res) {
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
 }
+
+export async function uploadInpatientImages(req, res) {
+  const { id } = req.params;
+  const files = req.files;
+
+  if (!files?.length) return res.status(400).json({ error: "No files uploaded." });
+
+  await supabase.storage.createBucket("clinic-images", { public: true }).catch(() => {});
+
+  const uploadedUrls = [];
+  for (const file of files) {
+    const ext = (file.mimetype.split("/")[1] || "jpg").replace("jpeg", "jpg");
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const path = `inpatient/${id}/${filename}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("clinic-images")
+      .upload(path, file.buffer, { contentType: file.mimetype, upsert: false });
+
+    if (uploadError) return res.status(500).json({ error: `Storage upload failed: ${uploadError.message}` });
+
+    const { data: { publicUrl } } = supabase.storage.from("clinic-images").getPublicUrl(path);
+    uploadedUrls.push(publicUrl);
+  }
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("inpatient_visits")
+    .select("image_urls")
+    .eq("id", id)
+    .single();
+
+  if (fetchErr) return res.status(404).json({ error: "Inpatient record not found." });
+
+  const existingUrls = Array.isArray(existing?.image_urls) ? existing.image_urls : [];
+  const allUrls = [...existingUrls, ...uploadedUrls];
+
+  const { data, error } = await supabase
+    .from("inpatient_visits")
+    .update({ image_urls: allUrls })
+    .eq("id", id)
+    .select("image_urls")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ image_urls: data.image_urls });
+}

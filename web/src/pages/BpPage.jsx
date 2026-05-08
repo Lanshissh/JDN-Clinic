@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost, apiPut, apiDelete } from "../api";
+import { apiGet, apiPost, apiPut, apiDelete, formatApiError } from "../api";
 import EmployeeSelect from "../components/EmployeeSelect";
 import DataTable from "../components/DataTable";
 import { useNavigate } from "react-router-dom";
@@ -27,6 +27,12 @@ function useMediaQuery(query) {
   return matches;
 }
 
+function isoDaysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function BpPage() {
   const nav = useNavigate();
   const isPhone = useMediaQuery("(max-width: 768px)");
@@ -34,11 +40,9 @@ export default function BpPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  // ✅ Modals
   const [openAddModal, setOpenAddModal] = useState(false);
   const [openFilterModal, setOpenFilterModal] = useState(false);
 
-  // ✅ Edit state
   const [mode, setMode] = useState("add"); // "add" | "edit"
   const [editingId, setEditingId] = useState(null);
 
@@ -58,22 +62,23 @@ export default function BpPage() {
 
   // Recent table filters (client-side)
   const todayIso = new Date().toISOString().slice(0, 10);
+  const defaultFrom = isoDaysAgo(30);
+  const defaultTo = todayIso;
 
   // applied filters
-  const [fFrom, setFFrom] = useState(todayIso);
-  const [fTo, setFTo] = useState(todayIso);
+  const [fFrom, setFFrom] = useState(defaultFrom);
+  const [fTo, setFTo] = useState(defaultTo);
   const [fName, setFName] = useState("");
 
   // draft filters (modal)
-  const [dfFrom, setDfFrom] = useState(todayIso);
-  const [dfTo, setDfTo] = useState(todayIso);
+  const [dfFrom, setDfFrom] = useState(defaultFrom);
+  const [dfTo, setDfTo] = useState(defaultTo);
   const [dfName, setDfName] = useState("");
 
   const [allRows, setAllRows] = useState([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [rowsErr, setRowsErr] = useState("");
 
-  // ✅ prevent background scroll while ANY modal open + close on ESC
   useEffect(() => {
     const anyOpen = openAddModal || openFilterModal;
 
@@ -102,7 +107,7 @@ export default function BpPage() {
       const data = await apiGet("/api/bp");
       setAllRows(Array.isArray(data) ? data : []);
     } catch (e) {
-      setRowsErr(String(e));
+      setRowsErr(formatApiError(e));
     } finally {
       setLoadingRows(false);
     }
@@ -132,7 +137,7 @@ export default function BpPage() {
     if (fFrom) parts.push(`From: ${fFrom}`);
     if (fTo) parts.push(`To: ${fTo}`);
     if (String(fName || "").trim()) parts.push(`Name: "${String(fName).trim()}"`);
-    return parts.length ? parts.join(" • ") : "No filters";
+    return parts.length ? parts.join(" | ") : "No filters";
   }, [fFrom, fTo, fName]);
 
   function openFilters() {
@@ -159,7 +164,7 @@ export default function BpPage() {
     setErr("");
     setMode("add");
     setEditingId(null);
-    setForm((f) => ({
+    setForm({
       employee_id: "",
       log_date: new Date().toISOString().slice(0, 10),
       log_time: "",
@@ -168,7 +173,7 @@ export default function BpPage() {
       designation: "",
       bp_text: "",
       intervention: "",
-    }));
+    });
     setOpenAddModal(true);
   }
 
@@ -196,7 +201,10 @@ export default function BpPage() {
     if (row.employee_id) return nav(`/employees/${row.employee_id}`);
 
     const name = String(row.employee_name ?? "").trim();
-    if (!name) return alert("No employee_id and no name to resolve history.");
+    if (!name) {
+      alert("This record is not linked to an employee yet.");
+      return;
+    }
 
     try {
       const found = await apiGet(`/api/employees?active=true&q=${encodeURIComponent(name)}`);
@@ -207,9 +215,9 @@ export default function BpPage() {
       );
       if (exact) return nav(`/employees/${exact.id}`);
 
-      alert("Cannot open history: employee not matched. Add employee_id or ensure exact name in Employees list.");
+      alert("This BP record is not linked to an employee in the master list yet. Edit the record, select the employee, and save it.");
     } catch {
-      alert("Cannot open history: failed to search employees.");
+      alert("Employee history could not be opened right now. Please try again.");
     }
   }
 
@@ -233,10 +241,10 @@ export default function BpPage() {
       if (mode === "edit") {
         if (!editingId) throw new Error("Missing BP record id for update.");
         await apiPut(`/api/bp/${editingId}`, payload);
-        setMsg("Updated!");
+        setMsg("Updated.");
       } else {
         await apiPost("/api/bp", payload);
-        setMsg("Saved!");
+        setMsg("Saved.");
       }
 
       resetFormKeepDateTime();
@@ -245,7 +253,7 @@ export default function BpPage() {
       setMode("add");
       loadAll();
     } catch (e2) {
-      setErr(String(e2));
+      setErr(formatApiError(e2));
     }
   }
 
@@ -262,14 +270,13 @@ export default function BpPage() {
 
     try {
       await apiDelete(`/api/bp/${id}`);
-      setMsg("Deleted!");
+      setMsg("Deleted.");
       loadAll();
     } catch (e) {
-      setErr(String(e));
+      setErr(formatApiError(e));
     }
   }
 
-  // ✅ Shared responsive modal styles
   const modalBase = {
     backdrop: {
       position: "fixed",
@@ -329,11 +336,11 @@ export default function BpPage() {
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" className="primary" onClick={openAdd}>
-            ➕ Add BP Log
+          <button data-tour="bp-add-btn" type="button" className="primary" onClick={openAdd}>
+            Add BP Log
           </button>
 
-          <button type="button" className="ghost" onClick={openFilters}>
+          <button data-tour="bp-filters" type="button" className="ghost" onClick={openFilters}>
             Filters
           </button>
 
@@ -345,7 +352,7 @@ export default function BpPage() {
 
       <div className="hr" />
 
-      {/* ✅ Add/Edit BP Log Modal */}
+      {/* Add/Edit BP Log Modal */}
       {openAddModal && (
         <div
           style={{ ...modalBase.backdrop, ...phoneBackdropOverride }}
@@ -370,7 +377,7 @@ export default function BpPage() {
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <span className="badge blue">Clinic Record</span>
                 <button type="button" className="ghost" onClick={() => setOpenAddModal(false)} style={{ padding: "8px 12px" }}>
-                  ✕ Close
+                  Close
                 </button>
               </div>
             </div>
@@ -494,7 +501,7 @@ export default function BpPage() {
         </div>
       )}
 
-      {/* ✅ Filters Modal */}
+      {/* Filters Modal */}
       {openFilterModal && (
         <div
           style={{ ...modalBase.backdrop, ...phoneBackdropOverride }}
@@ -517,12 +524,12 @@ export default function BpPage() {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>Filters</div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  Filter loaded BP logs (client-side).
+                  Choose which BP logs to show.
                 </div>
               </div>
 
               <button type="button" className="ghost" onClick={() => setOpenFilterModal(false)} style={{ padding: "8px 12px" }}>
-                ✕ Close
+                Close
               </button>
             </div>
 
@@ -564,8 +571,8 @@ export default function BpPage() {
                     type="button"
                     className="ghost"
                     onClick={() => {
-                      setDfFrom(todayIso);
-                      setDfTo(todayIso);
+                      setDfFrom(defaultFrom);
+                      setDfTo(defaultTo);
                       setDfName("");
                     }}
                     disabled={loadingRows}
@@ -588,12 +595,12 @@ export default function BpPage() {
       )}
 
       {/* Recent Logs */}
-      <div className="card" style={{ display: "grid", gap: 12 }}>
+      <div data-tour="bp-table" className="card" style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
           <div>
             <h3 style={{ marginBottom: 6 }}>Recent BP Logs</h3>
             <div className="muted" style={{ fontSize: 13 }}>
-              Click a row to open employee history. Use actions to edit/delete.
+              BP records for the selected filter.
             </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
               Active: <b>{activeFilterSummary}</b>
@@ -646,10 +653,11 @@ export default function BpPage() {
           defaultPageSize={15}
           pageSizeOptions={[10, 15, 25, 50, 100]}
           maxBodyHeight={520}
+          emptyMessage="No BP records for this filter."
         />
 
         <div className="muted" style={{ fontSize: 12 }}>
-          Tip: Use the Actions column to Edit/Delete. Click the row to open employee history.
+          Keep employee names linked to the master list for cleaner history reports.
         </div>
       </div>
     </div>

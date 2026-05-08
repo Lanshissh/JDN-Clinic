@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, apiPut, apiDelete } from "../api";
+import { apiGet, apiPut, apiDelete } from "../api";
 import DataTable from "../components/DataTable";
 
 export default function CheckupsPage() {

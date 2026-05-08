@@ -65,8 +65,7 @@ export default function EmployeeSelect({
     if (!q) return employees.slice(0, 12);
     const items = employees.filter((e) => {
       const name = String(e.full_name ?? "").toLowerCase();
-      const code = String(e.employee_code ?? "").toLowerCase();
-      return name.includes(q) || code.includes(q);
+      return name.includes(q);
     });
     return items.slice(0, 12);
   }, [employees, text]);
@@ -77,7 +76,7 @@ export default function EmployeeSelect({
     onChange?.(emp);
   }
 
-  function clear() {
+function clear() {
     setOpen(false);
     setText("");
     onChange?.(null);
@@ -155,12 +154,12 @@ export default function EmployeeSelect({
                 >
                   <div style={{ fontWeight: 600 }}>
                     {emp.full_name}
-                    {emp.employee_code ? ` (${emp.employee_code})` : ""}
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75 }}>
                     {emp.department ?? ""}
-                    {emp.designation ? ` • ${emp.designation}` : ""}
-                    {emp.age != null ? ` • Age ${emp.age}` : ""}
+                    {emp.designation ? ` | ${emp.designation}` : ""}
+                    {emp.birthday ? ` | Birthday ${String(emp.birthday).slice(0, 10)}` : ""}
+                    {emp.age != null ? ` | Age ${emp.age}` : ""}
                   </div>
                 </button>
               ))
@@ -172,8 +171,9 @@ export default function EmployeeSelect({
       {selected && (
         <div style={{ fontSize: 12, opacity: 0.75 }}>
           Selected: {selected.full_name}
-          {selected.department ? ` • ${selected.department}` : ""}
-          {selected.designation ? ` • ${selected.designation}` : ""}
+          {selected.department ? ` | ${selected.department}` : ""}
+          {selected.designation ? ` | ${selected.designation}` : ""}
+          {selected.birthday ? ` | Birthday ${String(selected.birthday).slice(0, 10)}` : ""}
         </div>
       )}
     </label>

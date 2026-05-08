@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiGet, apiPost, apiPut, apiDelete } from "../api";
+import { apiGet, apiPost, apiPut, apiDelete, formatApiError } from "../api";
 import EmployeeSelect from "../components/EmployeeSelect";
 import DataTable from "../components/DataTable";
 
@@ -89,6 +89,12 @@ function useMediaQuery(query) {
   return matches;
 }
 
+function isoDaysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function InpatientPage() {
   const nav = useNavigate();
   const isPhone = useMediaQuery("(max-width: 768px)");
@@ -96,11 +102,9 @@ export default function InpatientPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  // ✅ Modals
   const [openAddModal, setOpenAddModal] = useState(false);
   const [openFilterModal, setOpenFilterModal] = useState(false);
 
-  // ✅ CRUD edit state
   const [mode, setMode] = useState("add"); // "add" | "edit"
   const [editingId, setEditingId] = useState(null);
 
@@ -160,7 +164,6 @@ export default function InpatientPage() {
     setOpenFilterModal(false);
   }
 
-  // ✅ prevent background scroll while ANY modal open + close on ESC
   useEffect(() => {
     const anyOpen = openAddModal || openFilterModal;
 
@@ -184,13 +187,15 @@ export default function InpatientPage() {
 
   // --- List filters (applied) ---
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [fFrom, setFFrom] = useState(todayIso);
-  const [fTo, setFTo] = useState(todayIso);
+  const defaultFrom = isoDaysAgo(30);
+  const defaultTo = todayIso;
+  const [fFrom, setFFrom] = useState(defaultFrom);
+  const [fTo, setFTo] = useState(defaultTo);
   const [fName, setFName] = useState("");
 
   // --- Draft filters (modal inputs) ---
-  const [dfFrom, setDfFrom] = useState(todayIso);
-  const [dfTo, setDfTo] = useState(todayIso);
+  const [dfFrom, setDfFrom] = useState(defaultFrom);
+  const [dfTo, setDfTo] = useState(defaultTo);
   const [dfName, setDfName] = useState("");
 
   // --- List data ---
@@ -203,7 +208,7 @@ export default function InpatientPage() {
     if (fFrom) parts.push(`From: ${fFrom}`);
     if (fTo) parts.push(`To: ${fTo}`);
     if (String(fName || "").trim()) parts.push(`Name: "${String(fName).trim()}"`);
-    return parts.length ? parts.join(" • ") : "No filters";
+    return parts.length ? parts.join(" | ") : "No filters";
   }, [fFrom, fTo, fName]);
 
   function openFilters() {
@@ -226,7 +231,7 @@ export default function InpatientPage() {
       const data = await apiGet(`/api/inpatient?${qs.toString()}`);
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
-      setRowsErr(String(e));
+      setRowsErr(formatApiError(e));
     } finally {
       setLoadingRows(false);
     }
@@ -244,7 +249,10 @@ export default function InpatientPage() {
     }
 
     const name = String(row.name ?? "").trim();
-    if (!name) return alert("No employee_id and no name to resolve history.");
+    if (!name) {
+      alert("This record is not linked to an employee yet.");
+      return;
+    }
 
     try {
       const found = await apiGet(`/api/employees?active=true&q=${encodeURIComponent(name)}`);
@@ -255,12 +263,9 @@ export default function InpatientPage() {
       );
       if (exact) return nav(`/employees/${exact.id}`);
 
-      alert(
-        "Cannot open history: employee not matched.\n" +
-          "Fix by selecting an employee when logging new visits (employee_id will be saved)."
-      );
+      alert("This record is not linked to an employee in the master list yet. Edit the record, select the employee, and save it.");
     } catch {
-      alert("Cannot open history: failed to search employees.");
+      alert("Employee history could not be opened right now. Please try again.");
     }
   }
 
@@ -321,10 +326,10 @@ export default function InpatientPage() {
     setErr("");
     try {
       await apiDelete(`/api/inpatient/${id}`);
-      setMsg("Deleted!");
+      setMsg("Deleted.");
       loadRecent();
     } catch (e) {
-      setErr(String(e));
+      setErr(formatApiError(e));
     }
   }
 
@@ -352,10 +357,10 @@ export default function InpatientPage() {
       if (mode === "edit") {
         if (!editingId) throw new Error("Missing inpatient visit id for update.");
         await apiPut(`/api/inpatient/${editingId}`, payload);
-        setMsg("Updated!");
+        setMsg("Updated.");
       } else {
         await apiPost("/api/inpatient", payload);
-        setMsg("Saved!");
+        setMsg("Saved.");
       }
 
       resetFormKeepDateTime();
@@ -364,11 +369,10 @@ export default function InpatientPage() {
       setEditingId(null);
       loadRecent();
     } catch (e2) {
-      setErr(String(e2));
+      setErr(formatApiError(e2));
     }
   }
 
-  // ✅ Shared responsive modal styles
   const modalBase = {
     backdrop: {
       position: "fixed",
@@ -431,16 +435,16 @@ export default function InpatientPage() {
         <div>
           <h2 style={{ marginBottom: 6 }}>In-Patient Visit</h2>
           <div className="muted" style={{ fontSize: 13 }}>
-            Log clinic visits and review recent records. Click a row to open Employee History.
+            Log clinic visits and review recent records.
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" className="primary" onClick={openAdd}>
-            ➕ Add Visit
+          <button data-tour="inpatient-add-btn" type="button" className="primary" onClick={openAdd}>
+            Add Visit
           </button>
 
-          <button type="button" className="ghost" onClick={openFilters}>
+          <button data-tour="inpatient-filters" type="button" className="ghost" onClick={openFilters}>
             Filters
           </button>
 
@@ -452,7 +456,7 @@ export default function InpatientPage() {
 
       <div className="hr" />
 
-      {/* ✅ Add/Edit Visit Modal */}
+      {/* Add/Edit Visit Modal */}
       {openAddModal && (
         <div
           style={{ ...modalBase.backdrop, ...phoneBackdropOverride }}
@@ -477,7 +481,7 @@ export default function InpatientPage() {
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <span className="badge blue">Clinic Record</span>
                 <button type="button" className="ghost" onClick={closeAddModal} style={{ padding: "8px 12px" }}>
-                  ✕ Close
+                  Close
                 </button>
               </div>
             </div>
@@ -588,7 +592,7 @@ export default function InpatientPage() {
                   </label>
 
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Tip: Quick-select updates the text automatically. You can still edit manually.
+                    Selected symptoms are saved with this visit.
                   </div>
                 </div>
 
@@ -653,7 +657,7 @@ export default function InpatientPage() {
         </div>
       )}
 
-      {/* ✅ Filters Modal */}
+      {/* Filters Modal */}
       {openFilterModal && (
         <div
           style={{ ...modalBase.backdrop, ...phoneBackdropOverride }}
@@ -681,7 +685,7 @@ export default function InpatientPage() {
               </div>
 
               <button type="button" className="ghost" onClick={closeFilterModal} style={{ padding: "8px 12px" }}>
-                ✕ Close
+                Close
               </button>
             </div>
 
@@ -724,8 +728,8 @@ export default function InpatientPage() {
                     type="button"
                     className="ghost"
                     onClick={() => {
-                      setDfFrom(todayIso);
-                      setDfTo(todayIso);
+                      setDfFrom(defaultFrom);
+                      setDfTo(defaultTo);
                       setDfName("");
                     }}
                     disabled={loadingRows}
@@ -748,12 +752,12 @@ export default function InpatientPage() {
       )}
 
       {/* List Card */}
-      <div className="card" style={{ display: "grid", gap: 12 }}>
+      <div data-tour="inpatient-table" className="card" style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
           <div>
             <h3 style={{ marginBottom: 6 }}>Recent Inpatient Visits</h3>
             <div className="muted" style={{ fontSize: 13 }}>
-              Click headers to sort. Use Actions to Edit/Delete. Click a row to open employee history.
+              Recent visit records for the selected filter.
             </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
               Active: <b>{activeFilterSummary}</b>
@@ -804,10 +808,11 @@ export default function InpatientPage() {
           defaultPageSize={15}
           pageSizeOptions={[10, 15, 25, 50, 100]}
           maxBodyHeight={520}
+          emptyMessage="No visit records for this filter."
         />
 
         <div className="muted" style={{ fontSize: 12 }}>
-          Tip: Use Actions to edit/delete. Click a row to open employee history.
+          Keep employee names linked to the master list for cleaner history reports.
         </div>
       </div>
     </div>

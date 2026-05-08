@@ -5,9 +5,22 @@ function isoDate(d) {
   return d.toISOString().slice(0, 10);
 }
 
+function todayInTimeZone(timeZone = "Asia/Manila") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const values = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function addDays(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
+  // Use an explicit UTC midnight to avoid timezone shifts
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
   return isoDate(d);
 }
 
@@ -15,18 +28,60 @@ function startOfMonth(dateStr) {
   return dateStr.slice(0, 7) + "-01"; // YYYY-MM-01
 }
 
-function endOfMonth(dateStr) {
-  // safe "end" for range queries
-  return dateStr.slice(0, 7) + "-31";
+// This avoids invalid dates like Feb-31 and handles all month lengths safely.
+function startOfNextMonth(dateStr) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+  return isoDate(next);
+}
+
+function monthDay(dateStr) {
+  const value = String(dateStr ?? "");
+  return /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(5, 10) : "";
+}
+
+function isMissingBirthdayColumn(error) {
+  if (!error) return false;
+  const text = [error.code, error.message, error.details, error.hint]
+    .filter(Boolean)
+    .map(String)
+    .join(" | ");
+  return /birthday/i.test(text) && /column|schema cache|does not exist/i.test(text);
+}
+
+function namesList(rows, limit = 5) {
+  const names = rows.map((row) => row.full_name || "Unnamed employee");
+  const shown = names.slice(0, limit).join(", ");
+  if (names.length <= limit) return shown;
+  return `${shown}, and ${names.length - limit} more`;
+}
+
+function supabaseErrorDetails(error) {
+  if (!error) return "";
+
+  const text = [error.message, error.details, error.hint]
+    .filter(Boolean)
+    .map(String)
+    .join(" | ");
+
+  if (/ENOTFOUND/i.test(text)) {
+    return `Cannot resolve Supabase host. Check SUPABASE_URL in api/.env. ${text}`;
+  }
+
+  if (/fetch failed/i.test(text)) {
+    return `Cannot reach Supabase. Check internet, DNS/firewall settings, and SUPABASE_URL in api/.env. ${text}`;
+  }
+
+  return text || String(error);
 }
 
 export async function dashboardSummary(req, res) {
-  const today = isoDate(new Date());
+  const today = todayInTimeZone();
   const from7 = addDays(today, -6); // last 7 days inclusive
 
   const month = today.slice(0, 7); // YYYY-MM
   const monthFrom = startOfMonth(today);
-  const monthTo = endOfMonth(today);
+  const monthToExclusive = startOfNextMonth(today);
 
   // ---- Today totals + active employees + open checkups today
   const [
@@ -34,6 +89,7 @@ export async function dashboardSummary(req, res) {
     bpToday,
     checkupsToday,
     employeesActive,
+    employeesWithBirthdays,
     openCheckupsToday,
   ] = await Promise.all([
     supabase.from("inpatient_visits").select("id").eq("visit_date", today),
@@ -45,23 +101,32 @@ export async function dashboardSummary(req, res) {
     supabase.from("checkup_requests").select("id,status").eq("request_date", today),
     supabase.from("employees").select("id").eq("active", true),
     supabase
+      .from("employees")
+      .select("id,full_name,birthday")
+      .eq("active", true)
+      .not("birthday", "is", null)
+      .limit(500),
+    supabase
       .from("checkup_requests")
       .select("id")
       .eq("request_date", today)
       .eq("status", "open"),
   ]);
 
+  const birthdayColumnMissing = isMissingBirthdayColumn(employeesWithBirthdays.error);
+
   const anyErr =
     inpatientToday.error ||
     bpToday.error ||
     checkupsToday.error ||
     employeesActive.error ||
+    (!birthdayColumnMissing && employeesWithBirthdays.error) ||
     openCheckupsToday.error;
 
   if (anyErr) {
     return res.status(500).json({
       error: "Failed to load dashboard (today totals)",
-      details: String(anyErr?.message ?? ""),
+      details: supabaseErrorDetails(anyErr),
     });
   }
 
@@ -74,6 +139,12 @@ export async function dashboardSummary(req, res) {
     if (s == null && d == null) return false;
     return (s != null && s >= 140) || (d != null && d >= 90);
   });
+
+  const birthdayCelebrants = birthdayColumnMissing
+    ? []
+    : (employeesWithBirthdays.data ?? []).filter((employee) => {
+        return monthDay(employee.birthday) === today.slice(5, 10);
+      });
 
   // ---- 7-day trend data
   const [inpatient7, bp7, checkups7] = await Promise.all([
@@ -95,8 +166,11 @@ export async function dashboardSummary(req, res) {
   ]);
 
   if (inpatient7.error || bp7.error || checkups7.error) {
+    const err = inpatient7.error || bp7.error || checkups7.error;
+
     return res.status(500).json({
       error: "Failed to load dashboard (7-day trend)",
+      details: supabaseErrorDetails(err),
     });
   }
 
@@ -129,27 +203,33 @@ export async function dashboardSummary(req, res) {
   };
 
   // ---- Monthly summary (this month)
+  // Use [monthFrom, monthToExclusive) with .lt() instead of guessing an end-of-month day.
   const [mInpatient, mBp, mCheckups] = await Promise.all([
     supabase
       .from("inpatient_visits")
       .select("visit_date")
       .gte("visit_date", monthFrom)
-      .lte("visit_date", monthTo),
+      .lt("visit_date", monthToExclusive),
     supabase
       .from("bp_logs")
       .select("log_date")
       .gte("log_date", monthFrom)
-      .lte("log_date", monthTo),
+      .lt("log_date", monthToExclusive),
     supabase
       .from("checkup_requests")
       .select("request_date,status")
       .gte("request_date", monthFrom)
-      .lte("request_date", monthTo),
+      .lt("request_date", monthToExclusive),
   ]);
 
   if (mInpatient.error || mBp.error || mCheckups.error) {
+    // If you want to see the real DB error temporarily, uncomment:
+    // console.log("MONTHLY ERRORS:", mInpatient.error, mBp.error, mCheckups.error);
+    const err = mInpatient.error || mBp.error || mCheckups.error;
+
     return res.status(500).json({
       error: "Failed to load dashboard (monthly summary)",
+      details: supabaseErrorDetails(err),
     });
   }
 
@@ -165,6 +245,23 @@ export async function dashboardSummary(req, res) {
     },
   };
 
+  // ---- Follow-up overdue (status=followup, older than today)
+  const followupOverdue = await supabase
+    .from("checkup_requests")
+    .select("id, employee_name, request_date")
+    .eq("status", "followup")
+    .lt("request_date", today)
+    .order("request_date", { ascending: true })
+    .limit(20);
+
+  // ---- Low stock items
+  const lowStockItems = await supabase
+    .from("clinic_inventory")
+    .select("id, item_name, quantity, low_stock_threshold, unit")
+    .order("quantity");
+
+  const lowStock = (lowStockItems.data ?? []).filter((i) => i.quantity <= i.low_stock_threshold);
+
   // ---- Alerts
   // tweak thresholds here
   const OPEN_CHECKUPS_ALERT_THRESHOLD = 5;
@@ -174,8 +271,28 @@ export async function dashboardSummary(req, res) {
     alerts.push({
       type: "danger",
       title: "High BP logs today",
-      message: `${highBp.length} high reading(s) detected (≥140 systolic or ≥90 diastolic).`,
+      message: `${highBp.length} high reading(s) detected (>=140 systolic or >=90 diastolic).`,
       count: highBp.length,
+    });
+  }
+
+  if (birthdayCelebrants.length > 0) {
+    alerts.push({
+      type: "birthday",
+      title:
+        birthdayCelebrants.length === 1
+          ? "Employee birthday today"
+          : "Employee birthdays today",
+      message:
+        birthdayCelebrants.length === 1
+          ? `${namesList(birthdayCelebrants)} has a birthday today.`
+          : `${birthdayCelebrants.length} employees have birthdays today: ${namesList(birthdayCelebrants)}.`,
+      count: birthdayCelebrants.length,
+      employees: birthdayCelebrants.map((employee) => ({
+        id: employee.id,
+        full_name: employee.full_name,
+        birthday: employee.birthday,
+      })),
     });
   }
 
@@ -189,6 +306,37 @@ export async function dashboardSummary(req, res) {
     });
   }
 
+  const overdueFollowups = followupOverdue.data ?? [];
+  if (overdueFollowups.length > 0) {
+    alerts.push({
+      type: "warn",
+      title: "Overdue follow-ups",
+      message: `${overdueFollowups.length} checkup(s) marked follow-up from previous days have not been resolved.`,
+      count: overdueFollowups.length,
+      records: overdueFollowups.slice(0, 5).map((r) => ({
+        id: r.id,
+        employee_name: r.employee_name,
+        request_date: r.request_date,
+      })),
+    });
+  }
+
+  if (lowStock.length > 0) {
+    alerts.push({
+      type: "warn",
+      title: "Low stock items",
+      message: `${lowStock.length} item(s) in inventory are at or below the low-stock threshold.`,
+      count: lowStock.length,
+      items: lowStock.slice(0, 5).map((i) => ({
+        id: i.id,
+        item_name: i.item_name,
+        quantity: i.quantity,
+        unit: i.unit,
+        low_stock_threshold: i.low_stock_threshold,
+      })),
+    });
+  }
+
   res.json({
     date: today,
     totals: {
@@ -196,8 +344,11 @@ export async function dashboardSummary(req, res) {
       bp: (bpToday.data ?? []).length,
       checkups: (checkupsToday.data ?? []).length,
       employees: (employeesActive.data ?? []).length,
+      birthdays_today: birthdayCelebrants.length,
       open_checkups: openCount,
       high_bp: highBp.length,
+      overdue_followups: overdueFollowups.length,
+      low_stock: lowStock.length,
     },
     trend,
     monthly,
