@@ -511,6 +511,14 @@ export default function InpatientPage() {
 
                 <EmployeeSelect
                   valueId={form.employee_id}
+                  valueText={form.name}
+                  onTextChange={(text) => {
+                    setForm((f) => ({
+                      ...f,
+                      employee_id: "",
+                      name: text,
+                    }));
+                  }}
                   onChange={(emp) => {
                     setForm((f) => ({
                       ...f,
@@ -520,15 +528,11 @@ export default function InpatientPage() {
                       department: emp?.department ?? "",
                     }));
                   }}
-                  label="Employee (optional)"
+                  label="Employee Name *"
+                  required
                 />
 
-                <div style={{ display: "grid", gridTemplateColumns: isPhone ? "1fr" : "2fr 1fr 2fr", gap: 12 }}>
-                  <label>
-                    Name *
-                    <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-                  </label>
-
+                <div style={{ display: "grid", gridTemplateColumns: isPhone ? "1fr" : "1fr 2fr", gap: 12 }}>
                   <label>
                     Age
                     <input
@@ -762,16 +766,6 @@ export default function InpatientPage() {
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
               Active: <b>{activeFilterSummary}</b>
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span className="badge blue">{rows.length} records</span>
-            <button type="button" className="ghost" onClick={openFilters}>
-              Filters
-            </button>
-            <button type="button" className="ghost" onClick={loadRecent} disabled={loadingRows}>
-              {loadingRows ? "Loading..." : "Refresh"}
-            </button>
           </div>
         </div>
 

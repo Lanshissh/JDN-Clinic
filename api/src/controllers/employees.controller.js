@@ -1,5 +1,6 @@
 import { supabase } from "../supabase.js";
 import {
+  employeeBulkCreateSchema,
   employeeCreateSchema,
   employeeUpdateSchema,
 } from "../validators/employees.schema.js";
@@ -49,6 +50,24 @@ export async function createEmployee(req, res) {
 
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+}
+
+export async function createEmployeesBulk(req, res) {
+  const parsed = employeeBulkCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json(parsed.error);
+
+  const { data, error } = await supabase
+    .from("employees")
+    .insert(parsed.data.employees)
+    .select("*");
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({
+    ok: true,
+    inserted_count: data?.length ?? 0,
+    employees: data ?? [],
+  });
 }
 
 export async function updateEmployee(req, res) {

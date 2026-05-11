@@ -89,11 +89,12 @@ export default function SearchPage() {
 
             <ResultSection title="Employees" count={results.totals.employees}>
               <table style={{ width: "100%" }}>
-                <thead><tr><th>Name</th><th>Department</th><th>Designation</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>B.U. / Company</th><th>Department</th><th>Designation</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {results.employees.map((r) => (
                     <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => nav(`/employees/${r.id}`)}>
                       <td style={{ fontWeight: 600 }}>{r.full_name}</td>
+                      <td>{r.business_unit ?? "-"}</td>
                       <td>{r.department ?? "-"}</td>
                       <td>{r.designation ?? "-"}</td>
                       <td><span className="badge blue">{r.active ? "active" : "inactive"}</span></td>

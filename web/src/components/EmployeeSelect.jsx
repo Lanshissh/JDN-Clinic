@@ -10,9 +10,13 @@ import { apiGet } from "../api";
  */
 export default function EmployeeSelect({
   valueId = "",
+  valueText,
+  onTextChange,
   onChange,
   label = "Select Employee (optional)",
   placeholder = "Type a name...",
+  required = false,
+  autoFocus = false,
 }) {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -44,11 +48,19 @@ export default function EmployeeSelect({
 
   // keep input text synced when selection changes
   useEffect(() => {
-    if (selected) setText(selected.full_name ?? "");
-    // if cleared externally
+    if (selected) {
+      setText(selected.full_name ?? "");
+      return;
+    }
+
+    if (!valueId && valueText != null) {
+      setText(valueText);
+      return;
+    }
+
     if (!valueId) setText("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valueId, selected?.full_name]);
+  }, [valueId, selected?.full_name, valueText]);
 
   // close dropdown when clicking outside
   useEffect(() => {
@@ -76,9 +88,10 @@ export default function EmployeeSelect({
     onChange?.(emp);
   }
 
-function clear() {
+  function clear() {
     setOpen(false);
     setText("");
+    onTextChange?.("");
     onChange?.(null);
   }
 
@@ -99,13 +112,17 @@ function clear() {
           placeholder={loading ? "Loading employees..." : placeholder}
           onFocus={() => setOpen(true)}
           onChange={(e) => {
-            setText(e.target.value);
+            const nextText = e.target.value;
+            setText(nextText);
+            onTextChange?.(nextText);
             setOpen(true);
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") setOpen(false);
           }}
           disabled={loading}
+          required={required}
+          autoFocus={autoFocus}
           style={{ flex: 1 }}
         />
 
@@ -156,10 +173,13 @@ function clear() {
                     {emp.full_name}
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75 }}>
-                    {emp.department ?? ""}
-                    {emp.designation ? ` | ${emp.designation}` : ""}
-                    {emp.birthday ? ` | Birthday ${String(emp.birthday).slice(0, 10)}` : ""}
-                    {emp.age != null ? ` | Age ${emp.age}` : ""}
+                    {[
+                      emp.business_unit ? `B.U. / Company ${emp.business_unit}` : "",
+                      emp.department ? `Dept ${emp.department}` : "",
+                      emp.designation ?? "",
+                      emp.birthday ? `Birthday ${String(emp.birthday).slice(0, 10)}` : "",
+                      emp.age != null ? `Age ${emp.age}` : "",
+                    ].filter(Boolean).join(" | ")}
                   </div>
                 </button>
               ))
@@ -171,7 +191,8 @@ function clear() {
       {selected && (
         <div style={{ fontSize: 12, opacity: 0.75 }}>
           Selected: {selected.full_name}
-          {selected.department ? ` | ${selected.department}` : ""}
+          {selected.business_unit ? ` | B.U. / Company ${selected.business_unit}` : ""}
+          {selected.department ? ` | Dept ${selected.department}` : ""}
           {selected.designation ? ` | ${selected.designation}` : ""}
           {selected.birthday ? ` | Birthday ${String(selected.birthday).slice(0, 10)}` : ""}
         </div>

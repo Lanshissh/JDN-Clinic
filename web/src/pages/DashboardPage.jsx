@@ -54,7 +54,7 @@ function Sparkline({ data = [], height = 28 }) {
   );
 }
 
-function AlertCard({ alert }) {
+function AlertCard({ alert, onAction }) {
   const tone =
     alert.type === "danger"
       ? "danger"
@@ -69,7 +69,14 @@ function AlertCard({ alert }) {
           <div className="noticeTitle">{alert.title}</div>
           <div className="noticeText">{alert.message}</div>
         </div>
-        {alert.count != null ? <span className="badge blue">{alert.count}</span> : null}
+        <div style={{ display: "flex", gap: 8, alignItems: "start", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {alert.count != null ? <span className="badge blue">{alert.count}</span> : null}
+          {onAction ? (
+            <button type="button" className="ghost" onClick={onAction} style={{ padding: "6px 10px", minHeight: 32 }}>
+              {alert.action_label || "View"}
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -132,6 +139,7 @@ export default function DashboardPage() {
 
   const trend = data?.trend;
   const monthly = data?.monthly;
+  const allTime = data?.all_time;
 
   const monthLabel = useMemo(() => {
     if (!monthly?.month) return "";
@@ -227,6 +235,55 @@ export default function DashboardPage() {
             />
           </div>
 
+          <div style={{ marginTop: 18, display: "grid", gap: 12 }}>
+            <div>
+              <h3 style={{ marginBottom: 6 }}>All-Time Summary</h3>
+              <div className="muted" style={{ fontSize: 13 }}>
+                Total records saved in the system.
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+                gap: 14,
+              }}
+            >
+              <StatCard
+                label="In-Patient All Time"
+                value={allTime?.inpatient ?? 0}
+                hint="Total records"
+                right={<span className="badge blue">All</span>}
+                onClick={() => nav("/inpatient")}
+              />
+
+              <StatCard
+                label="BP Logs All Time"
+                value={allTime?.bp ?? 0}
+                hint="Total readings"
+                right={<span className="badge blue">All</span>}
+                onClick={() => nav("/bp")}
+              />
+
+              <StatCard
+                label="Checkups All Time"
+                value={allTime?.checkups ?? 0}
+                hint="Total requests"
+                right={<span className="badge blue">All</span>}
+                onClick={() => nav("/checkups")}
+              />
+
+              <StatCard
+                label="First Aiders All Time"
+                value={allTime?.first_aiders ?? 0}
+                hint="Total first aiders"
+                right={<span className="badge blue">All</span>}
+                onClick={() => nav("/first-aiders")}
+              />
+            </div>
+          </div>
+
           <div className="hr" />
 
           <div data-tour="dash-alerts" className="card" style={{ display: "grid", gap: 12 }}>
@@ -243,7 +300,11 @@ export default function DashboardPage() {
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {data.alerts.map((alert, i) => (
-                  <AlertCard key={i} alert={alert} />
+                  <AlertCard
+                    key={i}
+                    alert={alert}
+                    onAction={alert.action_path ? () => nav(alert.action_path) : undefined}
+                  />
                 ))}
               </div>
             )}

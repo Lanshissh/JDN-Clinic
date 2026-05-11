@@ -407,6 +407,14 @@ export default function BpPage() {
 
                 <EmployeeSelect
                   valueId={form.employee_id}
+                  valueText={form.employee_name}
+                  onTextChange={(text) => {
+                    setForm((f) => ({
+                      ...f,
+                      employee_id: "",
+                      employee_name: text,
+                    }));
+                  }}
                   onChange={(emp) => {
                     setForm((f) => ({
                       ...f,
@@ -416,17 +424,8 @@ export default function BpPage() {
                       designation: emp?.designation ?? "",
                     }));
                   }}
-                  label="Employee (optional)"
+                  label="Employee Name"
                 />
-
-                <label>
-                  Employee Name
-                  <input
-                    value={form.employee_name}
-                    onChange={(e) => setForm({ ...form, employee_name: e.target.value })}
-                    placeholder="Optional if employee selected"
-                  />
-                </label>
 
                 <div style={{ display: "grid", gridTemplateColumns: isPhone ? "1fr" : "1fr 2fr", gap: 12 }}>
                   <label>
@@ -605,18 +604,6 @@ export default function BpPage() {
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
               Active: <b>{activeFilterSummary}</b>
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span className="badge blue">{filteredRows.length} results</span>
-
-            <button type="button" className="ghost" onClick={openFilters}>
-              Filters
-            </button>
-
-            <button type="button" className="ghost" onClick={loadAll} disabled={loadingRows}>
-              {loadingRows ? "Loading..." : "Refresh"}
-            </button>
           </div>
         </div>
 

@@ -46,6 +46,8 @@ export default function DataTable({
   stickyHeader = true,
   maxBodyHeight = 520,
   emptyMessage = "No records found.",
+  getRowStyle,
+  getRowTitle,
 }) {
   const showActions = !!(onEdit || onDelete);
   const [sortKey, setSortKey] = useState(initialSortKey);
@@ -194,16 +196,22 @@ export default function DataTable({
             ) : (
               pagedRows.map((row, index) => {
                 const keyVal = row?.[rowKey] ?? row?.id ?? index;
+                const customRowStyle = getRowStyle ? getRowStyle(row) : null;
+                const rowTitle = getRowTitle ? getRowTitle(row) : undefined;
 
                 return (
                   <tr
                     key={keyVal}
+                    title={rowTitle}
                     onClick={(e) => {
                       if (!onRowClick) return;
                       if (isInteractiveElement(e.target)) return;
                       onRowClick(row);
                     }}
-                    style={{ cursor: onRowClick ? "pointer" : "default" }}
+                    style={{
+                      cursor: onRowClick ? "pointer" : "default",
+                      ...(customRowStyle || {}),
+                    }}
                   >
                     {columns.map((c) => (
                       <td key={c.key} style={{ maxWidth: 420 }}>

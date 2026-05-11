@@ -565,6 +565,7 @@ export default function EmployeeHistoryPage() {
                 <div>
                   <div style={{ fontWeight: 800, fontSize: 18, letterSpacing: ".2px" }}>{employee?.full_name}</div>
                   <div className="muted" style={{ fontSize: 13 }}>
+                    {employee?.business_unit ? `B.U. / Company ${employee.business_unit} | ` : ""}
                     {employee?.department ?? "-"}
                     {employee?.designation ? ` | ${employee.designation}` : ""}
                     {employee?.birthday ? ` | Birthday ${String(employee.birthday).slice(0, 10)}` : ""}

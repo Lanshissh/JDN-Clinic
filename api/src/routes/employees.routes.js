@@ -3,6 +3,7 @@ import {
   listEmployees,
   getEmployeeById,
   createEmployee,
+  createEmployeesBulk,
   updateEmployee,
   deactivateEmployee,
 } from "../controllers/employees.controller.js";
@@ -14,6 +15,7 @@ const router = Router();
 router.get("/", listEmployees);
 router.get("/:id", requireUuidParam(), getEmployeeById);
 router.post("/", createEmployee);
+router.post("/bulk", createEmployeesBulk);
 router.put("/:id", requireUuidParam(), updateEmployee);
 router.delete("/:id", requireUuidParam(), deactivateEmployee);
 router.get("/:id/history", requireUuidParam(), employeeHistory);

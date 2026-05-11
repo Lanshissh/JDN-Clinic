@@ -505,7 +505,7 @@ export default function CheckupsPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: isPhone ? "1fr" : "1fr 2fr 1fr",
+                    gridTemplateColumns: isPhone ? "1fr" : "1fr 1fr",
                     gap: 12,
                   }}
                 >
@@ -518,18 +518,6 @@ export default function CheckupsPage() {
                     />
                   </label>
 
-                  <EmployeeSelect
-                    valueId={form.employee_id}
-                    onChange={(emp) => {
-                      setForm((f) => ({
-                        ...f,
-                        employee_id: emp?.id ?? "",
-                        employee_name: emp?.full_name ?? "",
-                      }));
-                    }}
-                    label="Employee (optional)"
-                  />
-
                   <label>
                     Status
                     <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
@@ -540,15 +528,26 @@ export default function CheckupsPage() {
                   </label>
                 </div>
 
-                <label>
-                  Employee Name *
-                  <input
-                    value={form.employee_name}
-                    onChange={(e) => setForm({ ...form, employee_name: e.target.value })}
-                    required
-                    placeholder="Auto-filled if employee selected"
-                  />
-                </label>
+                <EmployeeSelect
+                  valueId={form.employee_id}
+                  valueText={form.employee_name}
+                  onTextChange={(text) => {
+                    setForm((f) => ({
+                      ...f,
+                      employee_id: "",
+                      employee_name: text,
+                    }));
+                  }}
+                  onChange={(emp) => {
+                    setForm((f) => ({
+                      ...f,
+                      employee_id: emp?.id ?? "",
+                      employee_name: emp?.full_name ?? "",
+                    }));
+                  }}
+                  label="Employee Name *"
+                  required
+                />
 
                 <label>
                   Symptoms
@@ -743,16 +742,6 @@ export default function CheckupsPage() {
             <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
               Active: <b>{activeFilterSummary}</b>
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span className="badge blue">{rows.length} records</span>
-            <button type="button" className="ghost" onClick={openFilters}>
-              Filters
-            </button>
-            <button type="button" className="ghost" onClick={loadRecent} disabled={loadingRows}>
-              {loadingRows ? "Loading..." : "Refresh"}
-            </button>
           </div>
         </div>
 

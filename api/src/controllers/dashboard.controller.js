@@ -1,5 +1,6 @@
 import { supabase } from "../supabase.js";
 import { parseBp } from "../utils/bpParser.js"; // parses "120/80" -> systolic/diastolic
+import { enrichFirstAiders, FIRST_AID_EXPIRING_DAYS } from "../utils/firstAiderStatus.js";
 
 function isoDate(d) {
   return d.toISOString().slice(0, 10);
@@ -245,6 +246,22 @@ export async function dashboardSummary(req, res) {
     },
   };
 
+  // ---- All-time totals
+  const [allInpatient, allBp, allCheckups] = await Promise.all([
+    supabase.from("inpatient_visits").select("*", { count: "exact", head: true }),
+    supabase.from("bp_logs").select("*", { count: "exact", head: true }),
+    supabase.from("checkup_requests").select("*", { count: "exact", head: true }),
+  ]);
+
+  if (allInpatient.error || allBp.error || allCheckups.error) {
+    const err = allInpatient.error || allBp.error || allCheckups.error;
+
+    return res.status(500).json({
+      error: "Failed to load dashboard (all-time totals)",
+      details: supabaseErrorDetails(err),
+    });
+  }
+
   // ---- Follow-up overdue (status=followup, older than today)
   const followupOverdue = await supabase
     .from("checkup_requests")
@@ -261,6 +278,22 @@ export async function dashboardSummary(req, res) {
     .order("quantity");
 
   const lowStock = (lowStockItems.data ?? []).filter((i) => i.quantity <= i.low_stock_threshold);
+
+  // ---- First aider training status
+  const [firstAidersResult, firstAidersAllTime] = await Promise.all([
+    supabase
+      .from("first_aiders")
+      .select("id, full_name, business_unit, training_start_date, training_end_date, remarks, assigned_location")
+      .limit(500),
+    supabase.from("first_aiders").select("*", { count: "exact", head: true }),
+  ]);
+
+  const firstAiders = firstAidersResult.error
+    ? []
+    : enrichFirstAiders(firstAidersResult.data ?? [], { today });
+
+  const firstAidersExpired = firstAiders.filter((row) => row.is_training_expired);
+  const firstAidersExpiring = firstAiders.filter((row) => row.is_training_expiring);
 
   // ---- Alerts
   // tweak thresholds here
@@ -337,6 +370,41 @@ export async function dashboardSummary(req, res) {
     });
   }
 
+  if (firstAidersExpired.length > 0) {
+    alerts.push({
+      type: "danger",
+      title: "Expired first aider training",
+      message: `${firstAidersExpired.length} first aider(s) have expired training: ${namesList(firstAidersExpired)}.`,
+      count: firstAidersExpired.length,
+      action_label: "View First Aiders",
+      action_path: "/first-aiders?status=expired",
+      records: firstAidersExpired.slice(0, 5).map((row) => ({
+        id: row.id,
+        full_name: row.full_name,
+        assigned_location: row.assigned_location,
+        training_expiry_date: row.training_expiry_date,
+      })),
+    });
+  }
+
+  if (firstAidersExpiring.length > 0) {
+    alerts.push({
+      type: "warn",
+      title: "First aider training expiring",
+      message: `${firstAidersExpiring.length} first aider(s) expire within ${FIRST_AID_EXPIRING_DAYS} days: ${namesList(firstAidersExpiring)}.`,
+      count: firstAidersExpiring.length,
+      action_label: "View First Aiders",
+      action_path: "/first-aiders?status=expiring",
+      records: firstAidersExpiring.slice(0, 5).map((row) => ({
+        id: row.id,
+        full_name: row.full_name,
+        assigned_location: row.assigned_location,
+        training_expiry_date: row.training_expiry_date,
+        days_until_expiry: row.days_until_expiry,
+      })),
+    });
+  }
+
   res.json({
     date: today,
     totals: {
@@ -349,9 +417,17 @@ export async function dashboardSummary(req, res) {
       high_bp: highBp.length,
       overdue_followups: overdueFollowups.length,
       low_stock: lowStock.length,
+      first_aiders_expired: firstAidersExpired.length,
+      first_aiders_expiring: firstAidersExpiring.length,
     },
     trend,
     monthly,
+    all_time: {
+      inpatient: allInpatient.count ?? 0,
+      bp: allBp.count ?? 0,
+      checkups: allCheckups.count ?? 0,
+      first_aiders: firstAidersAllTime.error ? firstAiders.length : (firstAidersAllTime.count ?? 0),
+    },
     alerts,
   });
 }

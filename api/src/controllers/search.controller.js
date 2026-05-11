@@ -10,7 +10,7 @@ export async function globalSearch(req, res) {
   const [employees, checkups, inpatient, bp] = await Promise.all([
     supabase
       .from("employees")
-      .select("id, full_name, department, designation, active")
+      .select("id, full_name, business_unit, department, designation, active")
       .ilike("full_name", like)
       .limit(10),
     supabase

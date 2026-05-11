@@ -32,6 +32,7 @@ import EmployeeHistoryPage from "./pages/EmployeeHistoryPage";
 import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
 import SearchPage from "./pages/SearchPage";
+import FirstAidersPage from "./pages/FirstAidersPage";
 import HelpButton from "./components/HelpButton";
 
 import { nurseLogin, clearNurseToken, getNurseToken, formatApiError } from "./api";
@@ -43,6 +44,7 @@ const NAV = [
   { to: "/inpatient", label: "In-Patient", short: "Visits", icon: "hospital" },
   { to: "/bp", label: "BP Monitoring", short: "BP", icon: "activity" },
   { to: "/checkups", label: "Checkups", short: "Check", icon: "clipboard" },
+  { to: "/first-aiders", label: "First Aiders", short: "Aid", icon: "firstAid" },
   { to: "/employees", label: "Employees", short: "Staff", icon: "users" },
   { to: "/inventory", label: "Inventory", short: "Stock", icon: "report" },
   { to: "/reports", label: "Analytics & Reports", short: "Analytics & Reports", icon: "report" },
@@ -93,6 +95,14 @@ function Icon({ name, className = "" }) {
         <path d="M9 4a3 3 0 0 0-3 3v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7a3 3 0 0 0-3-3" />
         <path d="M9 4a3 3 0 0 0 6 0" />
         <path d="M9 13l2 2 4-5" />
+      </svg>
+    ),
+    firstAid: (
+      <svg {...common}>
+        <path d="M7 3h10a2 2 0 0 1 2 2v16H5V5a2 2 0 0 1 2-2z" />
+        <path d="M9 21v-3h6v3" />
+        <path d="M12 8v6" />
+        <path d="M9 11h6" />
       </svg>
     ),
     users: (
@@ -465,6 +475,7 @@ function AppShell() {
           <Route path="/inpatient" element={<InpatientPage />} />
           <Route path="/bp" element={<BpPage />} />
           <Route path="/checkups" element={<CheckupsPage />} />
+          <Route path="/first-aiders" element={<FirstAidersPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/:id" element={<EmployeeHistoryPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
