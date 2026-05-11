@@ -34,7 +34,7 @@ import InventoryPage from "./pages/InventoryPage";
 import SearchPage from "./pages/SearchPage";
 import HelpButton from "./components/HelpButton";
 
-import { nurseLogin, clearNurseToken, getNurseToken } from "./api";
+import { nurseLogin, clearNurseToken, getNurseToken, formatApiError } from "./api";
 
 const LOGO_SRC = "/jdn.jpg";
 
@@ -189,8 +189,14 @@ function LoginPage() {
     try {
       await nurseLogin(username, password, { remember });
       window.location.href = "/";
-    } catch {
-      setErr("Invalid username or password");
+    } catch (error) {
+      if (error?.status === 401) {
+        setErr("Invalid username or password");
+      } else if (error instanceof TypeError) {
+        setErr("Cannot reach the clinic API. Check the API URL or CORS settings.");
+      } else {
+        setErr(formatApiError(error, "Unable to sign in right now. Please try again."));
+      }
     } finally {
       setLoading(false);
     }

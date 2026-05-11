@@ -5,6 +5,10 @@ const DEV_ORIGINS = [
   "http://127.0.0.1:4173",
 ];
 
+const PRODUCTION_ORIGINS = [
+  "https://jdnclinic.vercel.app",
+];
+
 function splitOriginList(value) {
   return String(value ?? "")
     .split(",")
@@ -32,10 +36,11 @@ function isAllowedOrigin(origin, allowedOrigins) {
 
 export function buildCorsOptions() {
   const configured = configuredOrigins();
-  const allowedOrigins = new Set([...configured, ...(!isProduction() ? DEV_ORIGINS : [])]);
+  const bundledOrigins = isProduction() ? PRODUCTION_ORIGINS : DEV_ORIGINS;
+  const allowedOrigins = new Set([...configured, ...bundledOrigins]);
 
   if (isProduction() && configured.length === 0) {
-    console.warn("[WARN] No CORS_ORIGINS or FRONTEND_URL configured. Browser API calls will be blocked.");
+    console.warn("[WARN] No CORS_ORIGINS or FRONTEND_URL configured. Using bundled production frontend origin.");
   }
 
   return {
